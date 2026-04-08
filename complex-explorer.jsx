@@ -144,6 +144,7 @@ export default function ComplexExplorer() {
   const [isDragging, setIsDragging] = useState(false);
   const svgRef = useRef(null);
   const zRef = useRef({re:0,im:0});
+  const onWheelRef = useRef(null);
 
   const SCALES = [0.001, 0.01, 0.1, 1, 2, 3, 5, 10, 20, 100, 1000, 10000];
   const gridMax = SCALES[scaleIdx];
@@ -172,7 +173,20 @@ export default function ComplexExplorer() {
   const pxScale = Math.min((W-80)/(2*gridMax),(H-80)/(2*gridMax));
   const toS = (r,i) => [cx+r*pxScale, cy-i*pxScale];
   const fromS = (sx,sy) => [(sx-cx)/pxScale, -(sy-cy)/pxScale];
-  const gridStep = gridMax<=3?1:gridMax<=8?2:gridMax<=20?5:10;
+  // Choose a gridStep so we get ~4-8 lines across the view
+  const rawStep = gridMax / 4;
+  const stepMag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const stepNorm = rawStep / stepMag;
+  const gridStep = stepMag * (stepNorm < 1.5 ? 1 : stepNorm < 3.5 ? 2 : stepNorm < 7.5 ? 5 : 10);
+  // Format tick labels: avoid too many digits or ugly floats
+  const fmtTick = v => {
+    if (v === 0) return "0";
+    const abs = Math.abs(v);
+    if (abs >= 1000) return (v/1000) + "k";
+    if (abs >= 1) return Number(v.toPrecision(4)).toString();
+    // small: use toPrecision to avoid trailing zeros
+    return Number(v.toPrecision(2)).toString();
+  };
 
   const updateFromScreen = useCallback((sx,sy) => {
     const [mr,mi] = [(sx-cx)/pxScale, -(sy-cy)/pxScale];
@@ -239,6 +253,27 @@ export default function ComplexExplorer() {
     }
   },[isDragging,getPos,updateFromScreen,pxScale,cx,cy,W,H]);
   const onUp = useCallback(()=>setIsDragging(false),[]);
+  const scrollAcc = useRef(0);
+  const onWheel = useCallback(e => {
+    e.preventDefault();
+    scrollAcc.current += e.deltaY;
+    const threshold = 50;
+    if (Math.abs(scrollAcc.current) >= threshold) {
+      const dir = scrollAcc.current > 0 ? 1 : -1;
+      scrollAcc.current = 0;
+      setScaleIdx(i => Math.min(SCALES.length-1, Math.max(0, i + dir)));
+    }
+  }, [SCALES.length]);
+  onWheelRef.current = onWheel;
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const handler = e => onWheelRef.current(e);
+    svg.addEventListener('wheel', handler, { passive: false });
+    return () => svg.removeEventListener('wheel', handler);
+  }, []);
+
   const onLeave = useCallback(()=>{
     setIsDragging(false);
     setHoveredLine(null);
@@ -571,16 +606,28 @@ export default function ComplexExplorer() {
         {/* Grid lines — minor */}
         {Array.from({length:Math.floor(2*gridMax/gridStep)+1},(_,idx)=>{
           const v=-gridMax+idx*gridStep;
-          if(Math.abs(v)<0.001) return null;
+          if(Math.abs(v)<gridStep*0.01) return null; // skip near-zero (axis)
           const [gx]=toS(v,0),[,gy]=toS(0,v);
           return <g key={idx}>
             <line x1={gx} y1={0} x2={gx} y2={H} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
             <line x1={0} y1={gy} x2={W} y2={gy} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
             {/* tick labels with pill background */}
-            <rect x={gx-13} y={cy+5} width={26} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
-            <text x={gx} y={cy+16} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{v}</text>
-            <rect x={cx-34} y={gy-9} width={28} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
-            <text x={cx-20} y={gy+4} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{v}i</text>
+            {(() => {
+              const xLbl = fmtTick(v);
+              const yLbl = fmtTick(v) + "i";
+              const xW = xLbl.length * 7 + 6;
+              const yW = yLbl.length * 7 + 6;
+              // x-axis label: centered on grid line, just below axis
+              const lxX = Math.min(Math.max(gx, xW/2+2), W - xW/2 - 2);
+              // y-axis label: just left of y-axis, vertically centered on grid line
+              const lyY = Math.min(Math.max(gy, 10), H - 10);
+              return <>
+                <rect x={lxX-xW/2} y={cy+5} width={xW} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
+                <text x={lxX} y={cy+16} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{xLbl}</text>
+                <rect x={cx-yW-4} y={lyY-9} width={yW} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
+                <text x={cx-yW/2-4} y={lyY+4} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{yLbl}</text>
+              </>;
+            })()}
           </g>;
         })}
 
