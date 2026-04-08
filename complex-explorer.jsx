@@ -305,13 +305,16 @@ export default function ComplexExplorer() {
 
   // Mesh lines — built whenever mesh is shown OR there's a hovered line to highlight
   const meshData = []; // {pts, val, isRow}
+  // Sample 3× beyond visible range so lines don't appear to end at the viewport edge
+  const meshExtent = 3;
   if (parsedFn && (showMesh || hoveredLine)) {
-    const res = 60;
-    // isRow=true → constant Im (val), varying Re: sample over full Re range (visReMax)
+    const res = 120;
+    // isRow=true → constant Im (val), varying Re: sample over extended Re range
     for (const val of hoverLinesIm.current) {
       const pts=[];
+      const rng = visReMax * meshExtent;
       for (let k=0;k<=res;k++) {
-        const t=-visReMax+(2*visReMax*k)/res;
+        const t=-rng+(2*rng*k)/res;
         try {
           const w=parsedFn([t,val]);
           pts.push(isFinite(w[0])&&isFinite(w[1])?w:null);
@@ -319,11 +322,12 @@ export default function ComplexExplorer() {
       }
       meshData.push({pts, val, isRow:true});
     }
-    // isRow=false → constant Re (val), varying Im: sample over full Im range (visImMax)
+    // isRow=false → constant Re (val), varying Im: sample over extended Im range
     for (const val of hoverLinesRe.current) {
       const pts=[];
+      const rng = visImMax * meshExtent;
       for (let k=0;k<=res;k++) {
-        const t=-visImMax+(2*visImMax*k)/res;
+        const t=-rng+(2*rng*k)/res;
         try {
           const w=parsedFn([val,t]);
           pts.push(isFinite(w[0])&&isFinite(w[1])?w:null);
@@ -726,12 +730,38 @@ export default function ComplexExplorer() {
             ( isRow && Math.abs(val-snapIm)<0.0001)
           );
           const isHovered = edgeHit || interiorHit;
-          let d="",on=false;
-          pts.forEach(p=>{
-            if(!p){on=false;return;}
-            const [sx,sy]=toS(p[0],p[1]);
-            if(sx<-200||sx>W+200||sy<-200||sy>H+200){on=false;return;}
-            d+=(on?`L`:`M`)+`${sx} ${sy}`; on=true;
+          // Convert pts to screen coords, clipping far-OOB points to null
+          const oobMargin = 150;
+          const sPts = pts.map(p => {
+            if (!p) return null;
+            const [sx,sy] = toS(p[0],p[1]);
+            if (sx<-oobMargin||sx>W+oobMargin||sy<-oobMargin||sy>H+oobMargin) return null;
+            return [sx,sy];
+          });
+          // Compute step sizes between consecutive valid points
+          const steps = [];
+          for (let i=1;i<sPts.length;i++) {
+            if (!sPts[i-1]||!sPts[i]) continue;
+            const dx=sPts[i][0]-sPts[i-1][0], dy=sPts[i][1]-sPts[i-1][1];
+            steps.push(Math.sqrt(dx*dx+dy*dy));
+          }
+          // Median step size — robust to outliers from discontinuities
+          let medianStep = 1;
+          if (steps.length > 0) {
+            const sorted = [...steps].sort((a,b)=>a-b);
+            medianStep = sorted[Math.floor(sorted.length/2)] || 1;
+          }
+          // Break the path wherever a step exceeds 10× the median — that's a discontinuity
+          const jumpThresh = Math.max(medianStep * 10, 2);
+          let d="",on=false,prevSx=0,prevSy=0;
+          sPts.forEach(sp=>{
+            if(!sp){on=false;return;}
+            const [sx,sy]=sp;
+            if(on){
+              const dx=sx-prevSx, dy=sy-prevSy;
+              if(Math.sqrt(dx*dx+dy*dy) > jumpThresh){on=false;}
+            }
+            d+=(on?`L`:`M`)+`${sx} ${sy}`; on=true; prevSx=sx; prevSy=sy;
           });
           if(!d) return null;
           const col = COL.out; // always green (f(z) color)
