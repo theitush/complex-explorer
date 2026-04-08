@@ -139,9 +139,11 @@ export default function ComplexExplorer() {
   const [meshTip, setMeshTip] = useState(false);
   const meshThick = 1.2; // fixed thickness
   const [hoveredLine, setHoveredLine] = useState(null); // {val, isRow} — edge hover
-  const [hoverPos, setHoverPos] = useState(null);       // {re, im} — interior hover when grid map on
+  const [hoverPos, setHoverPos] = useState(null);       // {re, im} — cursor pos while on graph
+  const [lockedPos, setLockedPos] = useState(null);     // {re, im} — last cursor pos, persists when cursor leaves
   const [isDragging, setIsDragging] = useState(false);
   const svgRef = useRef(null);
+  const zRef = useRef({re:0,im:0});
 
   const SCALES = [0.001, 0.01, 0.1, 1, 2, 3, 5, 10, 20, 100, 1000, 10000];
   const gridMax = SCALES[scaleIdx];
@@ -159,6 +161,7 @@ export default function ComplexExplorer() {
     ? [re,im]
     : [radius*Math.cos(angleDeg*Math.PI/180), radius*Math.sin(angleDeg*Math.PI/180)];
   const zRe=z[0], zIm=z[1], inMod=cAbs(z), inArg=cArg(z);
+  zRef.current = {re: zRe, im: zIm};
 
   let outRe=NaN, outIm=NaN, outOk=false;
   if (parsedFn) { try { const w=parsedFn(z); outRe=w[0]; outIm=w[1]; outOk=isFinite(outRe)&&isFinite(outIm); } catch{} }
@@ -236,7 +239,13 @@ export default function ComplexExplorer() {
     }
   },[isDragging,getPos,updateFromScreen,pxScale,cx,cy,W,H]);
   const onUp = useCallback(()=>setIsDragging(false),[]);
-  const onLeave = useCallback(()=>{ setIsDragging(false); setHoveredLine(null); setHoverPos(null); },[]);
+  const onLeave = useCallback(()=>{
+    setIsDragging(false);
+    setHoveredLine(null);
+    setHoverPos(null);
+    // snap grid to z's position at the moment cursor leaves, then freeze
+    setLockedPos({re: zRef.current.re, im: zRef.current.im});
+  },[]);
 
   // Nearest hoverLine snap helper
   const snapToHoverLine = (v) => {
@@ -614,13 +623,13 @@ export default function ComplexExplorer() {
           // edge hover: single line
           if(hoveredLine) lines.push(renderZLine(hoveredLine.val, hoveredLine.isRow, 'edge'));
           // interior hover (grid map on): both Re and Im snapped lines
-          if(showMesh && hoverPos && parsedFn){
-            const snapRe = snapToHoverLine(hoverPos.re);
-            const snapIm = snapToHoverLine(hoverPos.im);
-            if(!hoveredLine) {
-              lines.push(renderZLine(snapRe, false, 're'));
-              lines.push(renderZLine(snapIm, true,  'im'));
-            }
+          // falls back to z's position when cursor is off the graph
+          if(showMesh && parsedFn && !hoveredLine){
+            const pos = hoverPos || lockedPos || {re: zRe, im: zIm};
+            const snapRe = snapToHoverLine(pos.re);
+            const snapIm = snapToHoverLine(pos.im);
+            lines.push(renderZLine(snapRe, false, 're'));
+            lines.push(renderZLine(snapIm, true,  'im'));
           }
           return lines;
         })()}
@@ -629,10 +638,11 @@ export default function ComplexExplorer() {
         {meshData.map(({pts,val,isRow},li)=>{
           // edge-hover: exact match on the single selected line
           const edgeHit = hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
-          // interior-hover (grid map on): snap both Re and Im axes
-          const snapRe = showMesh && hoverPos ? snapToHoverLine(hoverPos.re) : null;
-          const snapIm = showMesh && hoverPos ? snapToHoverLine(hoverPos.im) : null;
-          const interiorHit = showMesh && hoverPos && (
+          // interior-hover (grid map on): snap both Re and Im axes, fallback to z position
+          const meshPos = showMesh ? (hoverPos || lockedPos || {re: zRe, im: zIm}) : null;
+          const snapRe = meshPos ? snapToHoverLine(meshPos.re) : null;
+          const snapIm = meshPos ? snapToHoverLine(meshPos.im) : null;
+          const interiorHit = showMesh && (
             (!isRow && Math.abs(val-snapRe)<0.0001) ||
             ( isRow && Math.abs(val-snapIm)<0.0001)
           );
