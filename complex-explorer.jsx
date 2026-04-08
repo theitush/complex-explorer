@@ -137,9 +137,9 @@ export default function ComplexExplorer() {
   const [scaleInput, setScaleInput] = useState("");
   const [showMesh, setShowMesh] = useState(false);
   const [meshTip, setMeshTip] = useState(false);
-  const [meshLabels, setMeshLabels] = useState(true);
-  const [meshThick, setMeshThick] = useState(1);
-  const [hoveredLine, setHoveredLine] = useState(null); // {val, isRow}
+  const meshThick = 1.2; // fixed thickness
+  const [hoveredLine, setHoveredLine] = useState(null); // {val, isRow} — edge hover
+  const [hoverPos, setHoverPos] = useState(null);       // {re, im} — interior hover when grid map on
   const [isDragging, setIsDragging] = useState(false);
   const svgRef = useRef(null);
 
@@ -170,7 +170,6 @@ export default function ComplexExplorer() {
   const toS = (r,i) => [cx+r*pxScale, cy-i*pxScale];
   const fromS = (sx,sy) => [(sx-cx)/pxScale, -(sy-cy)/pxScale];
   const gridStep = gridMax<=3?1:gridMax<=8?2:gridMax<=20?5:10;
-  const meshStep = gridMax<=3?0.5:gridMax<=6?1:2;
 
   const updateFromScreen = useCallback((sx,sy) => {
     const [mr,mi] = [(sx-cx)/pxScale, -(sy-cy)/pxScale];
@@ -192,27 +191,35 @@ export default function ComplexExplorer() {
   },[]);
 
   const onDown = useCallback(e => { const p=getPos(e); if(p){setIsDragging(true);setHoveredLine(null);updateFromScreen(p[0],p[1]);} },[getPos,updateFromScreen]);
+  // 20 equidistant hover lines across each axis, reaching edges (-gridMax to +gridMax)
+  const hoverLines = useRef([]);
+  hoverLines.current = (() => {
+    const N = 20;
+    const lines = [];
+    for (let k = 0; k < N; k++) {
+      const val = -gridMax + (2*gridMax*k)/(N-1);
+      lines.push(Math.round(val*1000)/1000);
+    }
+    return lines;
+  })();
+
   const onMove = useCallback(e => {
     const p=getPos(e); if(!p) return;
     if(isDragging){ updateFromScreen(p[0],p[1]); return; }
     const [mx,my]=p;
-    const edgeTol=26;
-    // vertical lines (Re=const) exit through top/bottom edges
-    // horizontal lines (Im=const) exit through left/right edges
+    const edgeTol=30;
     const atTopBot = my<edgeTol || my>H-edgeTol;
     const atLeftRight = mx<edgeTol || mx>W-edgeTol;
     if (atTopBot || atLeftRight) {
+      // edge hover: snap to nearest hoverLine
       let best=null, bestDist=Infinity;
-      for(let j=-gridMax;j<=gridMax+meshStep*0.01;j+=meshStep){
-        const val=Math.round(j/meshStep)*meshStep;
+      for(const val of hoverLines.current){
         if(atTopBot){
-          // vertical line Re=val — screen x = cx + val*pxScale; hover near top/bottom, match by x
           const gx=cx+val*pxScale;
           const d=Math.abs(gx-mx);
           if(d<bestDist){bestDist=d;best={val,isRow:false};}
         }
         if(atLeftRight){
-          // horizontal line Im=val — screen y = cy - val*pxScale; hover near left/right, match by y
           const gy=cy-val*pxScale;
           const d=Math.abs(gy-my);
           if(d<bestDist){bestDist=d;best={val,isRow:true};}
@@ -220,12 +227,23 @@ export default function ComplexExplorer() {
       }
       if(best && bestDist<edgeTol) setHoveredLine(best);
       else setHoveredLine(null);
+      setHoverPos(null);
     } else {
       setHoveredLine(null);
+      // interior hover: track complex position for grid map dual-line highlight
+      const mr=(mx-cx)/pxScale, mi=-(my-cy)/pxScale;
+      setHoverPos({re:mr, im:mi});
     }
-  },[isDragging,getPos,updateFromScreen,gridMax,meshStep,pxScale,cx,cy,W,H]);
+  },[isDragging,getPos,updateFromScreen,pxScale,cx,cy,W,H]);
   const onUp = useCallback(()=>setIsDragging(false),[]);
-  const onLeave = useCallback(()=>{ setIsDragging(false); setHoveredLine(null); },[]);
+  const onLeave = useCallback(()=>{ setIsDragging(false); setHoveredLine(null); setHoverPos(null); },[]);
+
+  // Nearest hoverLine snap helper
+  const snapToHoverLine = (v) => {
+    let best=hoverLines.current[0], bestD=Infinity;
+    for(const l of hoverLines.current){ const d=Math.abs(l-v); if(d<bestD){bestD=d;best=l;} }
+    return best;
+  };
 
   // Mesh lines — built whenever mesh is shown OR there's a hovered line to highlight
   const meshData = []; // {pts, val, isRow}
@@ -233,8 +251,7 @@ export default function ComplexExplorer() {
     const res = 60;
     for (let pass=0;pass<2;pass++) {
       const isRow = pass===0; // isRow=true → constant Im, varying Re
-      for (let j=-gridMax;j<=gridMax+meshStep*0.01;j+=meshStep) {
-        const val = Math.round(j/meshStep)*meshStep; // clean float
+      for (const val of hoverLines.current) {
         const pts=[];
         for (let k=0;k<=res;k++) {
           const t=-gridMax+(2*gridMax*k)/res;
@@ -466,21 +483,6 @@ export default function ComplexExplorer() {
                   color: showMesh ? COL.out : "var(--color-text-secondary)",cursor:"help",flexShrink:0,
                   transition:"border-color 0.15s, color 0.15s"}}>?</span>
             </label>
-            {/* Mesh sub-controls */}
-            {showMesh && <div style={{display:"flex",flexDirection:"column",gap:5,paddingLeft:2}}>
-              <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,
-                color:"var(--color-text-secondary)"}}>
-                <input type="checkbox" checked={meshLabels} onChange={e=>setMeshLabels(e.target.checked)}
-                  style={{accentColor:COL.out,width:12,height:12}}/>
-                Labels
-              </label>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:12,color:"var(--color-text-secondary)"}}>Thickness</span>
-                <input type="range" min={0.5} max={4} step={0.5} value={meshThick}
-                  onChange={e=>setMeshThick(parseFloat(e.target.value))}
-                  style={{width:64,accentColor:COL.out}}/>
-              </div>
-            </div>}
             {meshTip && (
               <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,right:-60,width:260,padding:"9px 12px",
                 background:"var(--color-background-primary)",border:"1.5px solid var(--color-border-secondary)",
@@ -525,6 +527,38 @@ export default function ComplexExplorer() {
             <path d="M2 1L8 5L2 9" fill="none" stroke={COL.out} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></marker>
         </defs>
 
+        {/* Edge hover zone cues — subtle strips indicating where to hover for grid line selection */}
+        {[
+          {x:0,y:0,w:W,h:22,label:"← hover for Im lines →",lx:W/2,ly:11},
+          {x:0,y:H-22,w:W,h:22,label:"← hover for Im lines →",lx:W/2,ly:H-11},
+          {x:0,y:0,w:22,h:H,label:null},
+          {x:W-22,y:0,w:22,h:H,label:null},
+        ].map((z,i)=>(
+          <rect key={`ez-${i}`} x={z.x} y={z.y} width={z.w} height={z.h}
+            fill={COL.in} opacity="0.04" rx={i<2?0:0}/>
+        ))}
+        {/* Edge labels for top/bottom (Re) and left/right (Im) */}
+        <text x={W/2} y={11} textAnchor="middle" dominantBaseline="central"
+          style={{fontSize:9,fill:COL.in,fontFamily:"var(--font-mono)",opacity:0.5,pointerEvents:"none"}}>
+          hover: Re lines
+        </text>
+        <text x={W/2} y={H-11} textAnchor="middle" dominantBaseline="central"
+          style={{fontSize:9,fill:COL.in,fontFamily:"var(--font-mono)",opacity:0.5,pointerEvents:"none"}}>
+          hover: Re lines
+        </text>
+        <text textAnchor="middle" dominantBaseline="central"
+          transform={`rotate(-90,11,${H/2})`}
+          style={{fontSize:9,fill:COL.in,fontFamily:"var(--font-mono)",opacity:0.5,pointerEvents:"none"}}
+          x={11} y={H/2}>
+          hover: Im lines
+        </text>
+        <text textAnchor="middle" dominantBaseline="central"
+          transform={`rotate(90,${W-11},${H/2})`}
+          style={{fontSize:9,fill:COL.in,fontFamily:"var(--font-mono)",opacity:0.5,pointerEvents:"none"}}
+          x={W-11} y={H/2}>
+          hover: Im lines
+        </text>
+
         {/* Grid lines — minor */}
         {Array.from({length:Math.floor(2*gridMax/gridStep)+1},(_,idx)=>{
           const v=-gridMax+idx*gridStep;
@@ -551,57 +585,74 @@ export default function ComplexExplorer() {
         <rect x={cx+6} y={4} width={24} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
         <text x={cx+18} y={15} textAnchor="middle" style={{fontSize:12,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:600}}>Im</text>
 
-        {/* Highlight hovered z-gridline on the input plane */}
-        {hoveredLine && (() => {
-          const {val, isRow} = hoveredLine;
-          const col = isRow ? COL.in : COL.arc;
-          if(isRow){
-            // horizontal line Im=val
-            const [,gy]=toS(0,val);
-            return <line x1={0} y1={gy} x2={W} y2={gy} stroke={col} strokeWidth="2" opacity="0.55" strokeDasharray="6 3"/>;
-          } else {
-            // vertical line Re=val
-            const [gx]=toS(val,0);
-            return <line x1={gx} y1={0} x2={gx} y2={H} stroke={col} strokeWidth="2" opacity="0.55" strokeDasharray="6 3"/>;
+        {/* Highlight hovered z-gridlines on the input plane */}
+        {(()=>{
+          const col = COL.in;
+          const lines = [];
+          const renderZLine = (val, isRow, key) => {
+            const label = isRow ? `Im = ${fN(val,2)}` : `Re = ${fN(val,2)}`;
+            const lw = label.length*7+8;
+            if(isRow){
+              const [,gy]=toS(0,val);
+              const lx = Math.min(Math.max(cx - lw/2, 2), W - lw - 2);
+              const ly = Math.min(Math.max(gy, 11), H-11);
+              return <g key={key}>
+                <line x1={0} y1={gy} x2={W} y2={gy} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="6 3"/>
+                <rect x={lx} y={ly-9} width={lw} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                <text x={lx+lw/2} y={ly+3} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{label}</text>
+              </g>;
+            } else {
+              const [gx]=toS(val,0);
+              const lx = Math.min(Math.max(gx - lw/2, 2), W - lw - 2);
+              return <g key={key}>
+                <line x1={gx} y1={0} x2={gx} y2={H} stroke={col} strokeWidth="1.8" opacity="0.75"/>
+                <rect x={lx} y={17} width={lw} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                <text x={lx+lw/2} y={30} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{label}</text>
+              </g>;
+            }
+          };
+          // edge hover: single line
+          if(hoveredLine) lines.push(renderZLine(hoveredLine.val, hoveredLine.isRow, 'edge'));
+          // interior hover (grid map on): both Re and Im snapped lines
+          if(showMesh && hoverPos && parsedFn){
+            const snapRe = snapToHoverLine(hoverPos.re);
+            const snapIm = snapToHoverLine(hoverPos.im);
+            if(!hoveredLine) {
+              lines.push(renderZLine(snapRe, false, 're'));
+              lines.push(renderZLine(snapIm, true,  'im'));
+            }
           }
+          return lines;
         })()}
 
         {/* Transformation mesh */}
         {meshData.map(({pts,val,isRow},li)=>{
-          const isHovered = hoveredLine && Math.abs(hoveredLine.val-val)<meshStep*0.5 && hoveredLine.isRow===isRow;
-          const faint = !isHovered && hoveredLine!=null;
+          // edge-hover: exact match on the single selected line
+          const edgeHit = hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
+          // interior-hover (grid map on): snap both Re and Im axes
+          const snapRe = showMesh && hoverPos ? snapToHoverLine(hoverPos.re) : null;
+          const snapIm = showMesh && hoverPos ? snapToHoverLine(hoverPos.im) : null;
+          const interiorHit = showMesh && hoverPos && (
+            (!isRow && Math.abs(val-snapRe)<0.0001) ||
+            ( isRow && Math.abs(val-snapIm)<0.0001)
+          );
+          const isHovered = edgeHit || interiorHit;
           let d="",on=false;
-          // collect all on-screen points to find a good ticker anchor near the edge
-          const screenPts=[];
           pts.forEach(p=>{
             if(!p){on=false;return;}
             const [sx,sy]=toS(p[0],p[1]);
             if(sx<-200||sx>W+200||sy<-200||sy>H+200){on=false;return;}
-            screenPts.push([sx,sy]);
             d+=(on?`L`:`M`)+`${sx} ${sy}`; on=true;
           });
           if(!d) return null;
-          const col = isHovered ? (isRow ? COL.in : COL.arc) : COL.out;
-          const sw = isHovered ? Math.max(meshThick, 2) : meshThick*0.6+0.3;
-          const op = isHovered ? 1 : faint ? 0.04 : 0.18;
-          // ticker anchor: first screen point (entry edge of the curve)
-          const anchor = screenPts[0];
-          const tickerLabel = isRow ? `Im=${fN(val,2)}` : `Re=${fN(val,2)}`;
+          const col = COL.out; // always green (f(z) color)
+          const sw = isHovered ? meshThick * 1.4 : meshThick * 0.45;
+          const op = isHovered ? 0.9 : 0.18;
+          // Im lines (isRow=true) are dashed, Re lines (isRow=false) are solid
+          const dash = isRow ? "5 3" : undefined;
           return <g key={li}>
-            <path d={d} fill="none" stroke={col} strokeWidth={sw} opacity={op}/>
-            {meshLabels && anchor && !faint && (
-              <g opacity={isHovered ? 1 : 0.5}>
-                <circle cx={anchor[0]} cy={anchor[1]} r={isHovered ? 4.5 : 2.5} fill={col}/>
-                {isHovered && <>
-                  <rect x={anchor[0]+7} y={anchor[1]-9} width={tickerLabel.length*7+4} height={16} rx={3}
-                    fill="var(--color-background-primary)" opacity="0.88"/>
-                  <text x={anchor[0]+9} y={anchor[1]+3}
-                    style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>
-                    {tickerLabel}
-                  </text>
-                </>}
-              </g>
-            )}
+            <path d={d} fill="none" stroke={col} strokeWidth={sw} opacity={op}
+              strokeDasharray={dash}/>
           </g>;
         })}
 
