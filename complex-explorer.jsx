@@ -173,6 +173,9 @@ export default function ComplexExplorer() {
   const pxScale = Math.min((W-80)/(2*gridMax),(H-80)/(2*gridMax));
   const toS = (r,i) => [cx+r*pxScale, cy-i*pxScale];
   const fromS = (sx,sy) => [(sx-cx)/pxScale, -(sy-cy)/pxScale];
+  // Actual visible range on each axis (canvas may be wider/taller than gridMax)
+  const visReMax = cx / pxScale;
+  const visImMax = cy / pxScale;
   // Choose a gridStep so we get ~4-8 lines across the view
   const rawStep = gridMax / 4;
   const stepMag = Math.pow(10, Math.floor(Math.log10(rawStep)));
@@ -208,17 +211,21 @@ export default function ComplexExplorer() {
   },[]);
 
   const onDown = useCallback(e => { const p=getPos(e); if(p){setIsDragging(true);setHoveredLine(null);updateFromScreen(p[0],p[1]);} },[getPos,updateFromScreen]);
-  // 20 equidistant hover lines across each axis, reaching edges (-gridMax to +gridMax)
-  const hoverLines = useRef([]);
-  hoverLines.current = (() => {
+  // 20 equidistant hover lines across each axis
+  // Re lines span ±visReMax (full canvas width), Im lines span ±visImMax (full canvas height)
+  const hoverLinesRe = useRef([]);
+  const hoverLinesIm = useRef([]);
+  hoverLinesRe.current = (() => {
     const N = 20;
-    const lines = [];
-    for (let k = 0; k < N; k++) {
-      const val = -gridMax + (2*gridMax*k)/(N-1);
-      lines.push(Math.round(val*1000)/1000);
-    }
-    return lines;
+    return Array.from({length:N}, (_,k) => Math.round((-visReMax + (2*visReMax*k)/(N-1))*1000)/1000);
   })();
+  hoverLinesIm.current = (() => {
+    const N = 20;
+    return Array.from({length:N}, (_,k) => Math.round((-visImMax + (2*visImMax*k)/(N-1))*1000)/1000);
+  })();
+  // combined for snap helper (union)
+  const hoverLines = useRef([]);
+  hoverLines.current = [...new Set([...hoverLinesRe.current, ...hoverLinesIm.current])];
 
   const onMove = useCallback(e => {
     const p=getPos(e); if(!p) return;
@@ -228,15 +235,17 @@ export default function ComplexExplorer() {
     const atTopBot = my<edgeTol || my>H-edgeTol;
     const atLeftRight = mx<edgeTol || mx>W-edgeTol;
     if (atTopBot || atLeftRight) {
-      // edge hover: snap to nearest hoverLine
+      // edge hover: snap to nearest hoverLine (Re lines for top/bot, Im lines for left/right)
       let best=null, bestDist=Infinity;
-      for(const val of hoverLines.current){
-        if(atTopBot){
+      if(atTopBot){
+        for(const val of hoverLinesRe.current){
           const gx=cx+val*pxScale;
           const d=Math.abs(gx-mx);
           if(d<bestDist){bestDist=d;best={val,isRow:false};}
         }
-        if(atLeftRight){
+      }
+      if(atLeftRight){
+        for(const val of hoverLinesIm.current){
           const gy=cy-val*pxScale;
           const d=Math.abs(gy-my);
           if(d<bestDist){bestDist=d;best={val,isRow:true};}
@@ -282,10 +291,15 @@ export default function ComplexExplorer() {
     setLockedPos({re: zRef.current.re, im: zRef.current.im});
   },[]);
 
-  // Nearest hoverLine snap helper
-  const snapToHoverLine = (v) => {
-    let best=hoverLines.current[0], bestD=Infinity;
-    for(const l of hoverLines.current){ const d=Math.abs(l-v); if(d<bestD){bestD=d;best=l;} }
+  // Nearest hoverLine snap helpers (Re snaps to Re lines, Im to Im lines)
+  const snapToReHoverLine = (v) => {
+    let best=hoverLinesRe.current[0], bestD=Infinity;
+    for(const l of hoverLinesRe.current){ const d=Math.abs(l-v); if(d<bestD){bestD=d;best=l;} }
+    return best;
+  };
+  const snapToImHoverLine = (v) => {
+    let best=hoverLinesIm.current[0], bestD=Infinity;
+    for(const l of hoverLinesIm.current){ const d=Math.abs(l-v); if(d<bestD){bestD=d;best=l;} }
     return best;
   };
 
@@ -293,19 +307,29 @@ export default function ComplexExplorer() {
   const meshData = []; // {pts, val, isRow}
   if (parsedFn && (showMesh || hoveredLine)) {
     const res = 60;
-    for (let pass=0;pass<2;pass++) {
-      const isRow = pass===0; // isRow=true → constant Im, varying Re
-      for (const val of hoverLines.current) {
-        const pts=[];
-        for (let k=0;k<=res;k++) {
-          const t=-gridMax+(2*gridMax*k)/res;
-          try {
-            const w=parsedFn(isRow?[t,val]:[val,t]);
-            pts.push(isFinite(w[0])&&isFinite(w[1])?w:null);
-          } catch{ pts.push(null); }
-        }
-        meshData.push({pts, val, isRow});
+    // isRow=true → constant Im (val), varying Re: sample over full Re range (visReMax)
+    for (const val of hoverLinesIm.current) {
+      const pts=[];
+      for (let k=0;k<=res;k++) {
+        const t=-visReMax+(2*visReMax*k)/res;
+        try {
+          const w=parsedFn([t,val]);
+          pts.push(isFinite(w[0])&&isFinite(w[1])?w:null);
+        } catch{ pts.push(null); }
       }
+      meshData.push({pts, val, isRow:true});
+    }
+    // isRow=false → constant Re (val), varying Im: sample over full Im range (visImMax)
+    for (const val of hoverLinesRe.current) {
+      const pts=[];
+      for (let k=0;k<=res;k++) {
+        const t=-visImMax+(2*visImMax*k)/res;
+        try {
+          const w=parsedFn([val,t]);
+          pts.push(isFinite(w[0])&&isFinite(w[1])?w:null);
+        } catch{ pts.push(null); }
+      }
+      meshData.push({pts, val, isRow:false});
     }
   }
 
@@ -604,33 +628,41 @@ export default function ComplexExplorer() {
         </text>
 
         {/* Grid lines — minor */}
-        {Array.from({length:Math.floor(2*gridMax/gridStep)+1},(_,idx)=>{
-          const v=-gridMax+idx*gridStep;
-          if(Math.abs(v)<gridStep*0.01) return null; // skip near-zero (axis)
-          const [gx]=toS(v,0),[,gy]=toS(0,v);
-          return <g key={idx}>
-            <line x1={gx} y1={0} x2={gx} y2={H} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
-            <line x1={0} y1={gy} x2={W} y2={gy} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
-            {/* tick labels with pill background */}
-            {(() => {
+        {(() => {
+          const reStart = Math.ceil(-visReMax / gridStep) * gridStep;
+          const imStart = Math.ceil(-visImMax / gridStep) * gridStep;
+          const reCount = Math.floor((2*visReMax) / gridStep) + 1;
+          const imCount = Math.floor((2*visImMax) / gridStep) + 1;
+          const reVals = Array.from({length: reCount}, (_, i) => reStart + i*gridStep);
+          const imVals = Array.from({length: imCount}, (_, i) => imStart + i*gridStep);
+          // union of unique values, keyed separately for Re and Im lines
+          return <>
+            {reVals.map((v, idx) => {
+              if(Math.abs(v)<gridStep*0.01) return null;
+              const [gx]=toS(v,0);
               const xLbl = fmtTick(v);
-              const yLbl = fmtTick(v) + "i";
               const xW = xLbl.length * 7 + 6;
-              const yW = yLbl.length * 7 + 6;
-              // x-axis label: centered on grid line, just below axis
               const lxX = Math.min(Math.max(gx, xW/2+2), W - xW/2 - 2);
-              // y-axis label: just left of y-axis, vertically centered on grid line
-              const lyY = Math.min(Math.max(gy, 10), H - 10);
-              return <>
+              return <g key={`re-${idx}`}>
+                <line x1={gx} y1={0} x2={gx} y2={H} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
                 <rect x={lxX-xW/2} y={cy+5} width={xW} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
                 <text x={lxX} y={cy+16} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{xLbl}</text>
+              </g>;
+            })}
+            {imVals.map((v, idx) => {
+              if(Math.abs(v)<gridStep*0.01) return null;
+              const [,gy]=toS(0,v);
+              const yLbl = fmtTick(v) + "i";
+              const yW = yLbl.length * 7 + 6;
+              const lyY = Math.min(Math.max(gy, 10), H - 10);
+              return <g key={`im-${idx}`}>
+                <line x1={0} y1={gy} x2={W} y2={gy} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
                 <rect x={cx-yW-4} y={lyY-9} width={yW} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
                 <text x={cx-yW/2-4} y={lyY+4} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{yLbl}</text>
-              </>;
-            })()}
-          </g>;
-        })}
-
+              </g>;
+            })}
+          </>;
+        })()}
         {/* Axes */}
         <line x1={0} y1={cy} x2={W} y2={cy} stroke="#8888aa" strokeWidth="1.5" opacity="0.9"/>
         <line x1={cx} y1={0} x2={cx} y2={H} stroke="#8888aa" strokeWidth="1.5" opacity="0.9"/>
@@ -673,8 +705,8 @@ export default function ComplexExplorer() {
           // falls back to z's position when cursor is off the graph
           if(showMesh && parsedFn && !hoveredLine){
             const pos = hoverPos || lockedPos || {re: zRe, im: zIm};
-            const snapRe = snapToHoverLine(pos.re);
-            const snapIm = snapToHoverLine(pos.im);
+            const snapRe = snapToReHoverLine(pos.re);
+            const snapIm = snapToImHoverLine(pos.im);
             lines.push(renderZLine(snapRe, false, 're'));
             lines.push(renderZLine(snapIm, true,  'im'));
           }
@@ -687,8 +719,8 @@ export default function ComplexExplorer() {
           const edgeHit = hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
           // interior-hover (grid map on): snap both Re and Im axes, fallback to z position
           const meshPos = showMesh ? (hoverPos || lockedPos || {re: zRe, im: zIm}) : null;
-          const snapRe = meshPos ? snapToHoverLine(meshPos.re) : null;
-          const snapIm = meshPos ? snapToHoverLine(meshPos.im) : null;
+          const snapRe = meshPos ? snapToReHoverLine(meshPos.re) : null;
+          const snapIm = meshPos ? snapToImHoverLine(meshPos.im) : null;
           const interiorHit = showMesh && (
             (!isRow && Math.abs(val-snapRe)<0.0001) ||
             ( isRow && Math.abs(val-snapIm)<0.0001)
