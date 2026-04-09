@@ -71,4 +71,4 @@ The application supports various complex functions including:
 - **JavaScript**: Programming language
 
 </content>
-<parameter name="filePath">/home/ita/complex-explorer/README.md
+<parameter name="filePath">
