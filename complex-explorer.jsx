@@ -735,7 +735,7 @@ export default function ComplexExplorer() {
               const lx = Math.min(Math.max(cx - lw/2, 2), W - lw - 2);
               const ly = Math.min(Math.max(gy, 11), H-11);
               return <g key={key}>
-                <line x1={0} y1={gy} x2={W} y2={gy} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="6 3"/>
+                <line x1={0} y1={gy} x2={W} y2={gy} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="1 6"/>
                 <rect x={lx} y={ly-9} width={lw} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
                 <text x={lx+lw/2} y={ly+3} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{label}</text>
               </g>;
@@ -811,7 +811,7 @@ export default function ComplexExplorer() {
           const sw = isHovered ? meshThick * 1.4 : meshThick * 0.45;
           const op = isHovered ? 0.9 : 0.18;
           // Im lines (isRow=true) are dashed, Re lines (isRow=false) are solid
-          const dash = isRow ? "5 3" : undefined;
+          const dash = isRow ? "1 6" : undefined;
           return <g key={li}>
             <path d={d} fill="none" stroke={col} strokeWidth={sw} opacity={op}
               strokeDasharray={dash}/>
