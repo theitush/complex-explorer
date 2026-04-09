@@ -774,8 +774,8 @@ export default function ComplexExplorer() {
                 sinA!==0 ? (sinA<0 ? (H-cy)/(-sinA) : cy/sinA) : Infinity
               );
               const ex = cx + cosA*tMax, ey = cy - sinA*tMax;
-              // label at 70% of maxRad
-              const labelR = Math.min(maxRad * 0.7, maxRad) * pxScale;
+              // label at the second circle from center (or first if only one)
+              const labelR = Math.min(3, circleCount) * gridStep * pxScale;
               const lx = cx + cosA*labelR, ly = cy - sinA*labelR;
               const isAxis = deg%90===0;
               return <g key={`pr-${deg}`}>
