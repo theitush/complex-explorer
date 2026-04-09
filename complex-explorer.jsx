@@ -133,10 +133,12 @@ export default function ComplexExplorer() {
   const [im, setIm] = useState(1);
   const [radius, setRadius] = useState(2);
   const [angleDeg, setAngleDeg] = useState(45);
-  const [scaleIdx, setScaleIdx] = useState(6); // index into SCALES (default=6 → gridMax=5)
+  const [scaleIdx, setScaleIdx] = useState(5); // index into SCALES (default=5 → gridMax=3)
   const [scaleInput, setScaleInput] = useState("");
-  const [showMesh, setShowMesh] = useState(false);
+  const [showMesh, setShowMesh] = useState(true);
   const [meshTip, setMeshTip] = useState(false);
+  const [showRadii, setShowRadii] = useState(true);
+  const [showAngle, setShowAngle] = useState(true);
   const meshThick = 1.2; // fixed thickness
   const [hoveredLine, setHoveredLine] = useState(null); // {val, isRow} — edge hover
   const [hoverPos, setHoverPos] = useState(null);       // {re, im} — cursor pos while on graph
@@ -399,14 +401,15 @@ export default function ComplexExplorer() {
     const f=maxR/dist;
     const ex=cx+dx*f, ey=cy+dy*f;
     const nx=dx/dist, ny=dy/dist;
-    const stubLen=28;
+    // 5 dashes: stubLen=40px → 5 dashes × 4px + 4 gaps × 4px = 36px ≈ fits
+    const stubLen=40;
     const sx1=ex-nx*stubLen, sy1=ey-ny*stubLen;
     const px=-ny, py=nx;
     const lx=ex+px*12+nx*6, ly=ey+py*12+ny*6;
     const mod=cAbs([re,im]), arg=cArg([re,im]);
     const valStr = coordMode==="polar" ? polarStr(mod,arg) : cStr(re,im);
     return <g key={`oob-${label}`}>
-      <line x1={sx1} y1={sy1} x2={ex} y2={ey} stroke={color} strokeWidth="2" strokeLinecap="round" strokeDasharray="5 4"
+      <line x1={sx1} y1={sy1} x2={ex} y2={ey} stroke={color} strokeWidth="2" strokeLinecap="round" strokeDasharray="4 4"
         markerEnd={color===COL.in?"url(#arr-in)":"url(#arr-out)"} opacity="0.7"/>
       <rect x={lx-48} y={ly-11} width={96} height={20} rx={4} fill="var(--color-background-primary)" opacity="0.82"/>
       <text x={lx} y={ly+1} textAnchor="middle" dominantBaseline="central"
@@ -551,7 +554,7 @@ export default function ComplexExplorer() {
           </>)}
         </div>
 
-        {/* Scale + mesh */}
+        {/* Scale */}
         <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:120}}>
           <div style={{display:"flex",alignItems:"center",gap:5}}>
             <span style={{fontSize:12,color:"var(--color-text-secondary)",whiteSpace:"nowrap"}}>Scale ±</span>
@@ -584,50 +587,71 @@ export default function ComplexExplorer() {
                 background:"var(--color-background-secondary)",color:"var(--color-text-primary)",cursor:"pointer",
                 fontSize:14,lineHeight:1,opacity:scaleIdx===SCALES.length-1?0.35:1,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
           </div>
-          <div style={{position:"relative"}}>
-            <label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",
-              padding:"5px 9px",borderRadius:"var(--border-radius-md)",
-              border:`1.5px solid ${showMesh ? COL.out : "var(--color-border-secondary)"}`,
-              background: showMesh ? `${COL.out}18` : "var(--color-background-secondary)",
-              transition:"border-color 0.15s, background 0.15s"}}>
-              <input type="checkbox" checked={showMesh} onChange={e=>setShowMesh(e.target.checked)}
-                style={{accentColor:COL.out,width:13,height:13}}/>
-              <span style={{fontSize:12,color: showMesh ? COL.out : "var(--color-text-secondary)",fontWeight: showMesh ? 600 : 400,
-                transition:"color 0.15s"}}>Grid map</span>
-              <span onClick={e=>{e.preventDefault();setMeshTip(!meshTip);}}
-                onMouseEnter={()=>setMeshTip(true)} onMouseLeave={()=>setMeshTip(false)}
-                style={{width:16,height:16,borderRadius:"50%",border:`1.5px solid ${showMesh ? COL.out : "var(--color-border-secondary)"}`,
-                  display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,
-                  color: showMesh ? COL.out : "var(--color-text-secondary)",cursor:"help",flexShrink:0,
-                  transition:"border-color 0.15s, color 0.15s"}}>?</span>
-            </label>
-            {meshTip && (
-              <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,right:-60,width:260,padding:"9px 12px",
-                background:"var(--color-background-primary)",border:"1.5px solid var(--color-border-secondary)",
-                borderRadius:"var(--border-radius-md)",fontSize:12,lineHeight:1.5,color:"var(--color-text-primary)",
-                zIndex:10,boxShadow:"0 4px 16px rgba(0,0,0,0.10)"}}>
-                Shows how f(z) warps the entire coordinate grid. Each faint line is a row or column of the complex plane after being pushed through f — so you see the global shape of the transformation, not just one point.
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
-      {/* z and f(z) cards */}
+      {/* Checkbox row */}
+      <div style={{display:"flex",gap:18,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+        {/* Grid map + ? */}
+        <div style={{position:"relative",display:"flex",alignItems:"center",gap:5}}>
+          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={showMesh} onChange={e=>setShowMesh(e.target.checked)}
+              style={{accentColor:COL.in,width:13,height:13,cursor:"pointer"}}/>
+            <span style={{fontSize:12,color: showMesh ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+              fontWeight: showMesh ? 500 : 400,transition:"color 0.15s"}}>Grid map</span>
+          </label>
+          <span onClick={()=>setMeshTip(v=>!v)}
+            onMouseEnter={()=>setMeshTip(true)} onMouseLeave={()=>setMeshTip(false)}
+            style={{width:15,height:15,borderRadius:"50%",border:"1.5px solid var(--color-border-secondary)",
+              display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,
+              color:"var(--color-text-tertiary)",cursor:"help",flexShrink:0}}>?</span>
+          {meshTip && (
+            <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,width:240,padding:"9px 12px",
+              background:"var(--color-background-primary)",border:"1.5px solid var(--color-border-secondary)",
+              borderRadius:"var(--border-radius-md)",fontSize:12,lineHeight:1.5,color:"var(--color-text-primary)",
+              zIndex:10,boxShadow:"0 4px 16px rgba(0,0,0,0.10)"}}>
+              Shows how f(z) warps the entire coordinate grid. Each faint line is a row or column of the complex plane pushed through f.
+            </div>
+          )}
+        </div>
+        {[
+          {label:"Radii |z|, |f(z)|", val:showRadii, set:setShowRadii},
+          {label:"Angle arc", val:showAngle, set:setShowAngle},
+        ].map(({label,val,set})=>(
+          <label key={label} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={val} onChange={e=>set(e.target.checked)}
+              style={{accentColor:COL.in,width:13,height:13,cursor:"pointer"}}/>
+            <span style={{fontSize:12,color: val ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+              fontWeight: val ? 500 : 400,transition:"color 0.15s"}}>{label}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* z and f(z) cards — 2 boxes, chosen coord format on top */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+        {/* Input z */}
         <div style={{background:"var(--color-background-secondary)",borderRadius:"var(--border-radius-lg)",padding:"11px 14px",
           borderLeft:`3px solid ${COL.in}`}}>
-          <div style={{fontSize:11,color:"var(--color-text-secondary)",marginBottom:4,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Input z</div>
-          <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.in,marginBottom:2}}>{cStr(zRe,zIm)}</div>
-          <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-secondary)"}}>{polarStr(inMod,inArg)}</div>
+          <div style={{fontSize:11,color:"var(--color-text-secondary)",marginBottom:6,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Input z</div>
+          {coordMode==="cartesian" ? (<>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.in,marginBottom:3}}>{cStr(zRe,zIm)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{polarStr(inMod,inArg)}</div>
+          </>) : (<>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.in,marginBottom:3}}>{polarStr(inMod,inArg)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{cStr(zRe,zIm)}</div>
+          </>)}
         </div>
+        {/* Output f(z) */}
         <div style={{background:"var(--color-background-secondary)",borderRadius:"var(--border-radius-lg)",padding:"11px 14px",
           borderLeft:`3px solid ${COL.out}`}}>
-          <div style={{fontSize:11,color:"var(--color-text-secondary)",marginBottom:4,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Output f(z)</div>
-          {outOk ? (<>
-            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.out,marginBottom:2}}>{cStr(outRe,outIm)}</div>
-            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-secondary)"}}>{polarStr(outMod,outArg)}</div>
-          </>) : (
+          <div style={{fontSize:11,color:"var(--color-text-secondary)",marginBottom:6,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Output f(z)</div>
+          {outOk ? (coordMode==="cartesian" ? (<>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.out,marginBottom:3}}>{cStr(outRe,outIm)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{polarStr(outMod,outArg)}</div>
+          </>) : (<>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.out,marginBottom:3}}>{polarStr(outMod,outArg)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{cStr(outRe,outIm)}</div>
+          </>)) : (
             <div style={{fontSize:15,fontWeight:500,fontFamily:"var(--font-mono)",color:"var(--color-text-danger)"}}>undefined</div>
           )}
         </div>
@@ -694,7 +718,7 @@ export default function ComplexExplorer() {
               const xW = xLbl.length * 7 + 6;
               const lxX = Math.min(Math.max(gx, xW/2+2), W - xW/2 - 2);
               return <g key={`re-${idx}`}>
-                <line x1={gx} y1={0} x2={gx} y2={H} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
+                <line x1={gx} y1={0} x2={gx} y2={H} stroke="#8888aa" strokeWidth="1.5" opacity="0.5"/>
                 <rect x={lxX-xW/2} y={cy+5} width={xW} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
                 <text x={lxX} y={cy+16} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{xLbl}</text>
               </g>;
@@ -706,7 +730,7 @@ export default function ComplexExplorer() {
               const yW = yLbl.length * 7 + 6;
               const lyY = Math.min(Math.max(gy, 10), H - 10);
               return <g key={`im-${idx}`}>
-                <line x1={0} y1={gy} x2={W} y2={gy} stroke="#8888aa" strokeWidth="1" opacity="0.5"/>
+                <line x1={0} y1={gy} x2={W} y2={gy} stroke="#8888aa" strokeWidth="1.5" opacity="0.5"/>
                 <rect x={cx-yW-4} y={lyY-9} width={yW} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.75"/>
                 <text x={cx-yW/2-4} y={lyY+4} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{yLbl}</text>
               </g>;
@@ -714,8 +738,8 @@ export default function ComplexExplorer() {
           </>;
         })()}
         {/* Axes */}
-        <line x1={0} y1={cy} x2={W} y2={cy} stroke="#8888aa" strokeWidth="1.5" opacity="0.9"/>
-        <line x1={cx} y1={0} x2={cx} y2={H} stroke="#8888aa" strokeWidth="1.5" opacity="0.9"/>
+        <line x1={0} y1={cy} x2={W} y2={cy} stroke="#8888aa" strokeWidth="2" opacity="0.9"/>
+        <line x1={cx} y1={0} x2={cx} y2={H} stroke="#8888aa" strokeWidth="2" opacity="0.9"/>
 
         {/* Axis labels */}
         <rect x={W-38} y={cy-22} width={30} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
@@ -819,15 +843,15 @@ export default function ComplexExplorer() {
         })}
 
         {/* Input |z| circle */}
-        {inMod*pxScale>1 && inMod*pxScale<H &&
+        {showRadii && inMod*pxScale>1 && inMod*pxScale<H &&
           <circle cx={cx} cy={cy} r={inMod*pxScale} fill="none" stroke={COL.in} strokeWidth="1" strokeDasharray="5 4" opacity="0.25"/>}
 
         {/* Output |f(z)| circle */}
-        {outOk && outMod*pxScale>1 && outMod*pxScale<H &&
+        {showRadii && outOk && outMod*pxScale>1 && outMod*pxScale<H &&
           <circle cx={cx} cy={cy} r={outMod*pxScale} fill="none" stroke={COL.outC} strokeWidth="1" strokeDasharray="5 4" opacity="0.4"/>}
 
         {/* Rotation arc */}
-        {outOk && inMod*pxScale>8 && outMod*pxScale>4 && (()=>{
+        {showAngle && outOk && inMod*pxScale>8 && outMod*pxScale>4 && (()=>{
           const arcR=Math.min(inMod*pxScale*0.35,50);
           let d=outArg-inArg;
           while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
