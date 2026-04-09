@@ -135,6 +135,7 @@ export default function ComplexExplorer() {
   const [angleDeg, setAngleDeg] = useState(45);
   const [scaleIdx, setScaleIdx] = useState(5); // index into SCALES (default=5 → gridMax=3)
   const [scaleInput, setScaleInput] = useState("");
+  const [showPolarGrid, setShowPolarGrid] = useState(false);
   const [showMesh, setShowMesh] = useState(true);
   const [meshTip, setMeshTip] = useState(false);
   const [showRadii, setShowRadii] = useState(true);
@@ -228,6 +229,21 @@ export default function ComplexExplorer() {
   // combined for snap helper (union)
   const hoverLines = useRef([]);
   hoverLines.current = [...new Set([...hoverLinesRe.current, ...hoverLinesIm.current])];
+
+  // Polar hover lines: constant-r circles and constant-θ rays
+  const polarMaxR = Math.sqrt(visReMax*visReMax + visImMax*visImMax);
+  const hoverLinesR = useRef([]); // radii
+  const hoverLinesTh = useRef([]); // angles in radians
+  hoverLinesR.current = (() => {
+    const N = 16;
+    return Array.from({length:N}, (_,k) => Math.round(polarMaxR*(k+1)/N * 1000)/1000);
+  })();
+  hoverLinesTh.current = (() => {
+    // every 15°
+    return Array.from({length:24}, (_,k) => Math.round((k * Math.PI / 12) * 10000) / 10000);
+  })();
+  const snapToPolarR = v => { let best=hoverLinesR.current[0],bestD=Infinity; for(const l of hoverLinesR.current){const d=Math.abs(l-v);if(d<bestD){bestD=d;best=l;}} return best; };
+  const snapToPolarTh = v => { let best=hoverLinesTh.current[0],bestD=Infinity; for(const l of hoverLinesTh.current){const d=Math.abs(l-v);if(d<bestD){bestD=d;best=l;}} return best; };
 
   const onMove = useCallback(e => {
     const p=getPos(e); if(!p) return;
@@ -335,8 +351,9 @@ export default function ComplexExplorer() {
           offScreen(sx0,sy0) && offScreen(sx1,sy1) && offScreen(sxm,sym)) {
         return [{t:t0,w:w0},{t:tm,w:null},{t:t1,w:w1}];
       }
-      // Potential discontinuity — subdivide briefly to find boundary, but cap at depth 5
-      if (screenDist > canvasDiag && depth < 5) {
+      // Potential discontinuity — subdivide to find boundary; cap at depth 5 only if all off-screen
+      const allOffScreen = offScreen(sx0,sy0) && offScreen(sx1,sy1) && offScreen(sxm,sym);
+      if (screenDist > canvasDiag && (allOffScreen ? depth < 5 : depth < maxDepth)) {
         return [
           ...subdivide(t0,w0,tm,wm,depth+1),
           ...subdivide(tm,wm,t1,w1,depth+1).slice(1),
@@ -370,18 +387,43 @@ export default function ComplexExplorer() {
   };
 
   if (parsedFn && (showMesh || hoveredLine)) {
-    const reRng = Math.max(visReMax * 1.5, 16);
-    const imRng = Math.max(visImMax * 1.5, 16);
+    if (showPolarGrid) {
+      // Polar grid map:
+      // isRow=true → constant-r circle (val = r), sample over θ ∈ [0, 2π]
+      // isRow=false → constant-θ ray (val = θ), sample over r ∈ [0, polarMaxR]
+      for (const r of hoverLinesR.current) {
+        // sample circle: map t∈[-π,π] → [r*cos(t), r*sin(t)]
+        const pts = sampleAdaptive(Math.PI, t => parsedFn([r*Math.cos(t), r*Math.sin(t)]), 0.5, 16);
+        meshData.push({pts, val:r, isRow:true, polar:true});
+      }
+      for (const th of hoverLinesTh.current) {
+        const cosA = Math.cos(th), sinA = Math.sin(th);
+        // Sample on a log-r scale so near-origin gets dense coverage.
+        // Map t ∈ [-half, half] → r = exp(t + logMid) spanning [rMin, polarMaxR].
+        const rMin = 1e-4;
+        const logMin = Math.log(rMin), logMax = Math.log(polarMaxR);
+        const logMid = (logMin + logMax) / 2;
+        const half = (logMax - logMin) / 2;
+        const pts = sampleAdaptive(half, t => {
+          const rr = Math.exp(logMid + t);
+          return parsedFn([rr*cosA, rr*sinA]);
+        }, 0.5, 16);
+        meshData.push({pts, val:th, isRow:false, polar:true});
+      }
+    } else {
+      const reRng = Math.max(visReMax * 1.5, 16);
+      const imRng = Math.max(visImMax * 1.5, 16);
 
-    // isRow=true → constant Im (val), varying Re
-    for (const val of hoverLinesIm.current) {
-      const pts = sampleAdaptive(reRng, t => parsedFn([t, val]));
-      meshData.push({pts, val, isRow:true});
-    }
-    // isRow=false → constant Re (val), varying Im
-    for (const val of hoverLinesRe.current) {
-      const pts = sampleAdaptive(imRng, t => parsedFn([val, t]));
-      meshData.push({pts, val, isRow:false});
+      // isRow=true → constant Im (val), varying Re
+      for (const val of hoverLinesIm.current) {
+        const pts = sampleAdaptive(reRng, t => parsedFn([t, val]));
+        meshData.push({pts, val, isRow:true});
+      }
+      // isRow=false → constant Re (val), varying Im
+      for (const val of hoverLinesRe.current) {
+        const pts = sampleAdaptive(imRng, t => parsedFn([val, t]));
+        meshData.push({pts, val, isRow:false});
+      }
     }
   }
 
@@ -442,8 +484,8 @@ export default function ComplexExplorer() {
 
   const switchMode = m => {
     if (m===coordMode) return;
-    if (m==="polar") { setRadius(parseFloat(fN(inMod,2))); setAngleDeg(Math.round(inArg*180/Math.PI)); }
-    else { setRe(parseFloat(fN(zRe,2))); setIm(parseFloat(fN(zIm,2))); }
+    if (m==="polar") { setRadius(parseFloat(fN(inMod,2))); setAngleDeg(Math.round(inArg*180/Math.PI)); setShowPolarGrid(true); }
+    else { setRe(parseFloat(fN(zRe,2))); setIm(parseFloat(fN(zIm,2))); setShowPolarGrid(false); }
     setCoordMode(m);
   };
 
@@ -701,15 +743,61 @@ export default function ComplexExplorer() {
           hover: Im lines
         </text>
 
-        {/* Grid lines — minor */}
-        {(() => {
+        {/* Grid lines — minor (cartesian or polar) */}
+        {showPolarGrid ? (() => {
+          // Polar grid: concentric circles at gridStep intervals + radial lines every 30°
+          const maxRad = Math.sqrt(visReMax*visReMax + visImMax*visImMax);
+          const circleCount = Math.ceil(maxRad / gridStep);
+          const radialAngles = Array.from({length:12}, (_,k) => k*30); // 0..330°
+          return <>
+            {/* Concentric circles */}
+            {Array.from({length: circleCount}, (_,k) => {
+              const r = (k+1) * gridStep;
+              const rpx = r * pxScale;
+              const lbl = fmtTick(r);
+              const lW = lbl.length * 7 + 6;
+              return <g key={`pc-${k}`}>
+                <circle cx={cx} cy={cy} r={rpx} fill="none" stroke="#8888aa" strokeWidth="1.5" opacity="0.5"/>
+                <rect x={cx+rpx/Math.SQRT2-lW/2} y={cy-rpx/Math.SQRT2-9} width={lW} height={15} rx={3}
+                  fill="var(--color-background-primary)" opacity="0.75"/>
+                <text x={cx+rpx/Math.SQRT2} y={cy-rpx/Math.SQRT2+3} textAnchor="middle"
+                  style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{lbl}</text>
+              </g>;
+            })}
+            {/* Radial lines */}
+            {radialAngles.map(deg => {
+              const rad = deg * Math.PI / 180;
+              const cosA = Math.cos(rad), sinA = Math.sin(rad);
+              // extend to canvas edge
+              const tMax = Math.min(
+                cosA!==0 ? (cosA>0 ? (W-cx)/cosA : -cx/cosA) : Infinity,
+                sinA!==0 ? (sinA<0 ? (H-cy)/(-sinA) : cy/sinA) : Infinity
+              );
+              const ex = cx + cosA*tMax, ey = cy - sinA*tMax;
+              // label at 70% of maxRad
+              const labelR = Math.min(maxRad * 0.7, maxRad) * pxScale;
+              const lx = cx + cosA*labelR, ly = cy - sinA*labelR;
+              const isAxis = deg%90===0;
+              return <g key={`pr-${deg}`}>
+                <line x1={cx} y1={cy} x2={ex} y2={ey}
+                  stroke="#8888aa" strokeWidth={isAxis?2:1.5} opacity={isAxis?0.9:0.35}/>
+                {!isAxis && <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central"
+                  style={{fontSize:10,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{deg}°</text>}
+              </g>;
+            })}
+            {/* Axis labels */}
+            <rect x={W-38} y={cy-22} width={30} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
+            <text x={W-23} y={cy-12} textAnchor="middle" style={{fontSize:12,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:600}}>Re</text>
+            <rect x={cx+6} y={4} width={24} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
+            <text x={cx+18} y={15} textAnchor="middle" style={{fontSize:12,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:600}}>Im</text>
+          </>;
+        })() : (() => {
           const reStart = Math.ceil(-visReMax / gridStep) * gridStep;
           const imStart = Math.ceil(-visImMax / gridStep) * gridStep;
           const reCount = Math.floor((2*visReMax) / gridStep) + 1;
           const imCount = Math.floor((2*visImMax) / gridStep) + 1;
           const reVals = Array.from({length: reCount}, (_, i) => reStart + i*gridStep);
           const imVals = Array.from({length: imCount}, (_, i) => imStart + i*gridStep);
-          // union of unique values, keyed separately for Re and Im lines
           return <>
             {reVals.map((v, idx) => {
               if(Math.abs(v)<gridStep*0.01) return null;
@@ -735,70 +823,115 @@ export default function ComplexExplorer() {
                 <text x={cx-yW/2-4} y={lyY+4} textAnchor="middle" style={{fontSize:11,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:500}}>{yLbl}</text>
               </g>;
             })}
+            {/* Axes */}
+            <line x1={0} y1={cy} x2={W} y2={cy} stroke="#8888aa" strokeWidth="2" opacity="0.9"/>
+            <line x1={cx} y1={0} x2={cx} y2={H} stroke="#8888aa" strokeWidth="2" opacity="0.9"/>
+            {/* Axis labels */}
+            <rect x={W-38} y={cy-22} width={30} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
+            <text x={W-23} y={cy-12} textAnchor="middle" style={{fontSize:12,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:600}}>Re</text>
+            <rect x={cx+6} y={4} width={24} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
+            <text x={cx+18} y={15} textAnchor="middle" style={{fontSize:12,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:600}}>Im</text>
           </>;
         })()}
-        {/* Axes */}
-        <line x1={0} y1={cy} x2={W} y2={cy} stroke="#8888aa" strokeWidth="2" opacity="0.9"/>
-        <line x1={cx} y1={0} x2={cx} y2={H} stroke="#8888aa" strokeWidth="2" opacity="0.9"/>
-
-        {/* Axis labels */}
-        <rect x={W-38} y={cy-22} width={30} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
-        <text x={W-23} y={cy-12} textAnchor="middle" style={{fontSize:12,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:600}}>Re</text>
-        <rect x={cx+6} y={4} width={24} height={16} rx={3} fill="var(--color-background-primary)" opacity="0.8"/>
-        <text x={cx+18} y={15} textAnchor="middle" style={{fontSize:12,fill:"var(--color-text-secondary)",fontFamily:"var(--font-sans)",fontWeight:600}}>Im</text>
 
         {/* Highlight hovered z-gridlines on the input plane */}
         {(()=>{
           const col = COL.in;
           const lines = [];
-          const renderZLine = (val, isRow, key) => {
-            const label = isRow ? `Im = ${fN(val,2)}` : `Re = ${fN(val,2)}`;
-            const lw = label.length*7+8;
-            if(isRow){
-              const [,gy]=toS(0,val);
-              const lx = Math.min(Math.max(cx - lw/2, 2), W - lw - 2);
-              const ly = Math.min(Math.max(gy, 11), H-11);
-              return <g key={key}>
-                <line x1={0} y1={gy} x2={W} y2={gy} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="1 6"/>
-                <rect x={lx} y={ly-9} width={lw} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
-                <text x={lx+lw/2} y={ly+3} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{label}</text>
+          if (showPolarGrid) {
+            // Polar: highlight snapped r-circle and θ-ray
+            const renderPolarHighlight = (r, th) => {
+              const rPx = r * pxScale;
+              const thDeg = Math.round(th * 180 / Math.PI);
+              const cosA = Math.cos(th), sinA = Math.sin(th);
+              const tMax = Math.min(
+                cosA!==0 ? (cosA>0 ? (W-cx)/cosA : -cx/cosA) : Infinity,
+                sinA!==0 ? (sinA<0 ? (H-cy)/(-sinA) : cy/sinA) : Infinity
+              );
+              const ex = cx + cosA*tMax, ey = cy - sinA*tMax;
+              return <g key="polar-hl">
+                <circle cx={cx} cy={cy} r={rPx} fill="none" stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="1 6"/>
+                <line x1={cx} y1={cy} x2={ex} y2={ey} stroke={col} strokeWidth="1.8" opacity="0.75"/>
+                <rect x={cx+rPx/Math.SQRT2-20} y={cy-rPx/Math.SQRT2-18} width={40} height={16} rx={3}
+                  fill="var(--color-background-primary)" opacity="0.88"/>
+                <text x={cx+rPx/Math.SQRT2} y={cy-rPx/Math.SQRT2-6} textAnchor="middle"
+                  style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>r={fN(r,2)}</text>
+                <rect x={cx+cosA*rPx*0.6-22} y={cy-sinA*rPx*0.6+5} width={44} height={16} rx={3}
+                  fill="var(--color-background-primary)" opacity="0.88"/>
+                <text x={cx+cosA*rPx*0.6} y={cy-sinA*rPx*0.6+16} textAnchor="middle"
+                  style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>θ={thDeg}°</text>
               </g>;
-            } else {
-              const [gx]=toS(val,0);
-              const lx = Math.min(Math.max(gx - lw/2, 2), W - lw - 2);
-              return <g key={key}>
-                <line x1={gx} y1={0} x2={gx} y2={H} stroke={col} strokeWidth="1.8" opacity="0.75"/>
-                <rect x={lx} y={17} width={lw} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
-                <text x={lx+lw/2} y={30} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{label}</text>
-              </g>;
+            };
+            if(showMesh && parsedFn){
+              const pos = hoverPos || lockedPos || {re: zRe, im: zIm};
+              const posR = Math.sqrt(pos.re*pos.re + pos.im*pos.im);
+              const posTh = Math.atan2(pos.im, pos.re);
+              const normTh = ((posTh % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+              const snapR = snapToPolarR(posR);
+              const snapTh = snapToPolarTh(normTh);
+              lines.push(renderPolarHighlight(snapR, snapTh));
             }
-          };
-          // edge hover: single line
-          if(hoveredLine) lines.push(renderZLine(hoveredLine.val, hoveredLine.isRow, 'edge'));
-          // interior hover (grid map on): both Re and Im snapped lines
-          // falls back to z's position when cursor is off the graph
-          if(showMesh && parsedFn && !hoveredLine){
-            const pos = hoverPos || lockedPos || {re: zRe, im: zIm};
-            const snapRe = snapToReHoverLine(pos.re);
-            const snapIm = snapToImHoverLine(pos.im);
-            lines.push(renderZLine(snapRe, false, 're'));
-            lines.push(renderZLine(snapIm, true,  'im'));
+          } else {
+            const renderZLine = (val, isRow, key) => {
+              const label = isRow ? `Im = ${fN(val,2)}` : `Re = ${fN(val,2)}`;
+              const lw = label.length*7+8;
+              if(isRow){
+                const [,gy]=toS(0,val);
+                const lx = Math.min(Math.max(cx - lw/2, 2), W - lw - 2);
+                const ly = Math.min(Math.max(gy, 11), H-11);
+                return <g key={key}>
+                  <line x1={0} y1={gy} x2={W} y2={gy} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="1 6"/>
+                  <rect x={lx} y={ly-9} width={lw} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                  <text x={lx+lw/2} y={ly+3} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{label}</text>
+                </g>;
+              } else {
+                const [gx]=toS(val,0);
+                const lx = Math.min(Math.max(gx - lw/2, 2), W - lw - 2);
+                return <g key={key}>
+                  <line x1={gx} y1={0} x2={gx} y2={H} stroke={col} strokeWidth="1.8" opacity="0.75"/>
+                  <rect x={lx} y={17} width={lw} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                  <text x={lx+lw/2} y={30} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{label}</text>
+                </g>;
+              }
+            };
+            // edge hover: single line
+            if(hoveredLine) lines.push(renderZLine(hoveredLine.val, hoveredLine.isRow, 'edge'));
+            // interior hover (grid map on): both Re and Im snapped lines
+            if(showMesh && parsedFn && !hoveredLine){
+              const pos = hoverPos || lockedPos || {re: zRe, im: zIm};
+              const snapRe = snapToReHoverLine(pos.re);
+              const snapIm = snapToImHoverLine(pos.im);
+              lines.push(renderZLine(snapRe, false, 're'));
+              lines.push(renderZLine(snapIm, true,  'im'));
+            }
           }
           return lines;
         })()}
 
         {/* Transformation mesh */}
-        {meshData.map(({pts,val,isRow},li)=>{
-          // edge-hover: exact match on the single selected line
-          const edgeHit = hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
-          // interior-hover (grid map on): snap both Re and Im axes, fallback to z position
+        {meshData.map(({pts,val,isRow,polar},li)=>{
+          // edge-hover: exact match on the single selected line (cartesian only)
+          const edgeHit = !showPolarGrid && hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
+          // interior-hover (grid map on): snap to nearest line, fallback to z position
           const meshPos = showMesh ? (hoverPos || lockedPos || {re: zRe, im: zIm}) : null;
-          const snapRe = meshPos ? snapToReHoverLine(meshPos.re) : null;
-          const snapIm = meshPos ? snapToImHoverLine(meshPos.im) : null;
-          const interiorHit = showMesh && (
-            (!isRow && Math.abs(val-snapRe)<0.0001) ||
-            ( isRow && Math.abs(val-snapIm)<0.0001)
-          );
+          let interiorHit = false;
+          if (showPolarGrid && meshPos) {
+            const posR = Math.sqrt(meshPos.re*meshPos.re + meshPos.im*meshPos.im);
+            const posTh = ((Math.atan2(meshPos.im, meshPos.re) % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+            const snapR = snapToPolarR(posR);
+            const snapTh = snapToPolarTh(posTh);
+            interiorHit = showMesh && (
+              ( isRow && Math.abs(val-snapR)<0.0001) ||
+              (!isRow && Math.abs(val-snapTh)<0.0001)
+            );
+          } else if (meshPos) {
+            const snapRe = snapToReHoverLine(meshPos.re);
+            const snapIm = snapToImHoverLine(meshPos.im);
+            interiorHit = showMesh && (
+              (!isRow && Math.abs(val-snapRe)<0.0001) ||
+              ( isRow && Math.abs(val-snapIm)<0.0001)
+            );
+          }
           const isHovered = edgeHit || interiorHit;
           // Spikes near poles are already nulled by sampleLine(), so we just need
           // to break the path at nulls and at large screen-space jumps (remaining
@@ -819,7 +952,9 @@ export default function ComplexExplorer() {
           }
           const sorted = [...steps].sort((a,b)=>a-b);
           const medianStep = sorted[Math.floor(sorted.length/2)] || 1;
-          const jumpThresh = Math.max(medianStep * 10, 2);
+          // For polar circles (closed curves), disable jump-break — any large step is a sampling
+          // artifact from a rapidly-winding output (e.g. z^i), not a real discontinuity.
+          const jumpThresh = (polar && isRow) ? Infinity : Math.max(medianStep * 10, 2);
           let d="",on=false,prevSx=0,prevSy=0;
           sPts.forEach(sp=>{
             if(!sp){on=false;return;}
