@@ -314,11 +314,11 @@ export default function ComplexExplorer() {
     const eval_ = t => {
       try { const w=evalFn(t); return (isFinite(w[0])&&isFinite(w[1]))?w:null; } catch{ return null; }
     };
+    const canvasDiag = Math.sqrt(W*W + H*H);
     // Recursive subdivide: returns list of {t, w} in order, inserting midpoints as needed
     const subdivide = (t0, w0, t1, w1, depth) => {
       const tm = (t0+t1)/2;
       const wm = eval_(tm);
-      // If either endpoint is null, try to find the boundary via bisection (max 8 steps)
       if (!w0 || !w1) return [{t:t0,w:w0},{t:t1,w:w1}];
       if (!wm) return [{t:t0,w:w0},{t:tm,w:null},{t:t1,w:w1}];
       if (depth >= maxDepth) return [{t:t0,w:w0},{t:tm,w:wm},{t:t1,w:w1}];
@@ -326,18 +326,23 @@ export default function ComplexExplorer() {
       const sx0=cx+w0[0]*pxScale, sy0=cy-w0[1]*pxScale;
       const sx1=cx+w1[0]*pxScale, sy1=cy-w1[1]*pxScale;
       const sxm=cx+wm[0]*pxScale, sym=cy-wm[1]*pxScale;
-      // Midpoint of chord
-      const cxm=(sx0+sx1)/2, cym=(sy0+sy1)/2;
-      const dev = Math.sqrt((sxm-cxm)**2+(sym-cym)**2);
-      // Also detect discontinuity: if output jumps wildly relative to input change
       const screenDist = Math.sqrt((sx1-sx0)**2+(sy1-sy0)**2);
-      if (screenDist > 200 && depth < 8) {
-        // Potential discontinuity — keep subdividing to find it
+      // If both endpoints are far off-screen and the jump is huge, it's off-screen chaos — stop
+      const offScreen = (x,y) => x<-W||x>2*W||y<-H||y>2*H;
+      if (screenDist > canvasDiag * 4 && depth >= 3 &&
+          offScreen(sx0,sy0) && offScreen(sx1,sy1) && offScreen(sxm,sym)) {
+        return [{t:t0,w:w0},{t:tm,w:null},{t:t1,w:w1}];
+      }
+      // Potential discontinuity — subdivide briefly to find boundary, but cap at depth 5
+      if (screenDist > canvasDiag && depth < 5) {
         return [
           ...subdivide(t0,w0,tm,wm,depth+1),
           ...subdivide(tm,wm,t1,w1,depth+1).slice(1),
         ];
       }
+      // Midpoint of chord
+      const cxm=(sx0+sx1)/2, cym=(sy0+sy1)/2;
+      const dev = Math.sqrt((sxm-cxm)**2+(sym-cym)**2);
       if (dev < pixTol) return [{t:t0,w:w0},{t:t1,w:w1}];
       return [
         ...subdivide(t0,w0,tm,wm,depth+1),
@@ -363,8 +368,8 @@ export default function ComplexExplorer() {
   };
 
   if (parsedFn && (showMesh || hoveredLine)) {
-    const reRng = Math.max(visReMax * 3, 16);
-    const imRng = Math.max(visImMax * 3, 16);
+    const reRng = Math.max(visReMax * 1.5, 16);
+    const imRng = Math.max(visImMax * 1.5, 16);
 
     // isRow=true → constant Im (val), varying Re
     for (const val of hoverLinesIm.current) {
