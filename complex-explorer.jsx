@@ -304,35 +304,76 @@ export default function ComplexExplorer() {
   };
 
   // Mesh lines — built whenever mesh is shown OR there's a hovered line to highlight
-  const meshData = []; // {pts, val, isRow}
-  // Sample 3× beyond visible range so lines don't appear to end at the viewport edge
-  const meshExtent = 3;
-  if (parsedFn && (showMesh || hoveredLine)) {
-    const res = 120;
-    // isRow=true → constant Im (val), varying Re: sample over extended Re range
-    for (const val of hoverLinesIm.current) {
-      const pts=[];
-      const rng = visReMax * meshExtent;
-      for (let k=0;k<=res;k++) {
-        const t=-rng+(2*rng*k)/res;
-        try {
-          const w=parsedFn([t,val]);
-          pts.push(isFinite(w[0])&&isFinite(w[1])?w:null);
-        } catch{ pts.push(null); }
+  const meshData = []; // {pts, val, isRow, adaptive}
+
+  // Adaptive sampler for all lines.
+  // Recursively subdivides until the output curve deviation from a straight chord
+  // is less than `pixTol` pixels, or max depth is reached.
+  // Returns an array of segments (arrays of [re,im] points), broken at discontinuities.
+  const sampleAdaptive = (rng, evalFn, pixTol=0.5, maxDepth=12) => {
+    const eval_ = t => {
+      try { const w=evalFn(t); return (isFinite(w[0])&&isFinite(w[1]))?w:null; } catch{ return null; }
+    };
+    // Recursive subdivide: returns list of {t, w} in order, inserting midpoints as needed
+    const subdivide = (t0, w0, t1, w1, depth) => {
+      const tm = (t0+t1)/2;
+      const wm = eval_(tm);
+      // If either endpoint is null, try to find the boundary via bisection (max 8 steps)
+      if (!w0 || !w1) return [{t:t0,w:w0},{t:t1,w:w1}];
+      if (!wm) return [{t:t0,w:w0},{t:tm,w:null},{t:t1,w:w1}];
+      if (depth >= maxDepth) return [{t:t0,w:w0},{t:tm,w:wm},{t:t1,w:w1}];
+      // Check chord deviation in screen pixels
+      const sx0=cx+w0[0]*pxScale, sy0=cy-w0[1]*pxScale;
+      const sx1=cx+w1[0]*pxScale, sy1=cy-w1[1]*pxScale;
+      const sxm=cx+wm[0]*pxScale, sym=cy-wm[1]*pxScale;
+      // Midpoint of chord
+      const cxm=(sx0+sx1)/2, cym=(sy0+sy1)/2;
+      const dev = Math.sqrt((sxm-cxm)**2+(sym-cym)**2);
+      // Also detect discontinuity: if output jumps wildly relative to input change
+      const screenDist = Math.sqrt((sx1-sx0)**2+(sy1-sy0)**2);
+      if (screenDist > 200 && depth < 8) {
+        // Potential discontinuity — keep subdividing to find it
+        return [
+          ...subdivide(t0,w0,tm,wm,depth+1),
+          ...subdivide(tm,wm,t1,w1,depth+1).slice(1),
+        ];
       }
+      if (dev < pixTol) return [{t:t0,w:w0},{t:t1,w:w1}];
+      return [
+        ...subdivide(t0,w0,tm,wm,depth+1),
+        ...subdivide(tm,wm,t1,w1,depth+1).slice(1),
+      ];
+    };
+
+    // Start with ~16 coarse points across the range to seed the recursion
+    const seeds = 16;
+    const coarse = [];
+    for (let k=0;k<=seeds;k++) {
+      const t = -rng + 2*rng*k/seeds;
+      coarse.push({t, w:eval_(t)});
+    }
+    // Subdivide each coarse segment
+    const all = [coarse[0]];
+    for (let i=1;i<=seeds;i++) {
+      const refined = subdivide(coarse[i-1].t, coarse[i-1].w, coarse[i].t, coarse[i].w, 0);
+      all.push(...refined.slice(1));
+    }
+    // Split into segments at nulls, return as flat pts array
+    return all.map(({w})=>w);
+  };
+
+  if (parsedFn && (showMesh || hoveredLine)) {
+    const reRng = Math.max(visReMax * 3, 16);
+    const imRng = Math.max(visImMax * 3, 16);
+
+    // isRow=true → constant Im (val), varying Re
+    for (const val of hoverLinesIm.current) {
+      const pts = sampleAdaptive(reRng, t => parsedFn([t, val]));
       meshData.push({pts, val, isRow:true});
     }
-    // isRow=false → constant Re (val), varying Im: sample over extended Im range
+    // isRow=false → constant Re (val), varying Im
     for (const val of hoverLinesRe.current) {
-      const pts=[];
-      const rng = visImMax * meshExtent;
-      for (let k=0;k<=res;k++) {
-        const t=-rng+(2*rng*k)/res;
-        try {
-          const w=parsedFn([val,t]);
-          pts.push(isFinite(w[0])&&isFinite(w[1])?w:null);
-        } catch{ pts.push(null); }
-      }
+      const pts = sampleAdaptive(imRng, t => parsedFn([val, t]));
       meshData.push({pts, val, isRow:false});
     }
   }
@@ -730,28 +771,25 @@ export default function ComplexExplorer() {
             ( isRow && Math.abs(val-snapIm)<0.0001)
           );
           const isHovered = edgeHit || interiorHit;
-          // Convert pts to screen coords, clipping far-OOB points to null
-          const oobMargin = 150;
+          // Spikes near poles are already nulled by sampleLine(), so we just need
+          // to break the path at nulls and at large screen-space jumps (remaining
+          // discontinuities that weren't caught by the spike filter).
+          const oobMargin = 400;
           const sPts = pts.map(p => {
             if (!p) return null;
             const [sx,sy] = toS(p[0],p[1]);
             if (sx<-oobMargin||sx>W+oobMargin||sy<-oobMargin||sy>H+oobMargin) return null;
             return [sx,sy];
           });
-          // Compute step sizes between consecutive valid points
+          // Median screen-space step for jump detection
           const steps = [];
           for (let i=1;i<sPts.length;i++) {
             if (!sPts[i-1]||!sPts[i]) continue;
             const dx=sPts[i][0]-sPts[i-1][0], dy=sPts[i][1]-sPts[i-1][1];
             steps.push(Math.sqrt(dx*dx+dy*dy));
           }
-          // Median step size — robust to outliers from discontinuities
-          let medianStep = 1;
-          if (steps.length > 0) {
-            const sorted = [...steps].sort((a,b)=>a-b);
-            medianStep = sorted[Math.floor(sorted.length/2)] || 1;
-          }
-          // Break the path wherever a step exceeds 10× the median — that's a discontinuity
+          const sorted = [...steps].sort((a,b)=>a-b);
+          const medianStep = sorted[Math.floor(sorted.length/2)] || 1;
           const jumpThresh = Math.max(medianStep * 10, 2);
           let d="",on=false,prevSx=0,prevSy=0;
           sPts.forEach(sp=>{
