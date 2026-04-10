@@ -710,11 +710,11 @@ export default function ComplexExplorer() {
           borderLeft:`3px solid ${COL.in}`}}>
           <div style={{fontSize:11,color:"var(--color-text-secondary)",marginBottom:6,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Input z</div>
           {coordMode==="cartesian" ? (<>
-            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.in,marginBottom:3}}>{cStr(zRe,zIm)}</div>
-            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{polarStr(inMod,inArg)}</div>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.in,marginBottom:3,minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cStr(zRe,zIm)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)",minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{polarStr(inMod,inArg)}</div>
           </>) : (<>
-            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.in,marginBottom:3}}>{polarStr(inMod,inArg)}</div>
-            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{cStr(zRe,zIm)}</div>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.in,marginBottom:3,minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{polarStr(inMod,inArg)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)",minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cStr(zRe,zIm)}</div>
           </>)}
         </div>
         {/* Output f(z) */}
@@ -722,13 +722,13 @@ export default function ComplexExplorer() {
           borderLeft:`3px solid ${COL.out}`}}>
           <div style={{fontSize:11,color:"var(--color-text-secondary)",marginBottom:6,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Output f(z)</div>
           {outOk ? (coordMode==="cartesian" ? (<>
-            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.out,marginBottom:3}}>{cStr(outRe,outIm)}</div>
-            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{polarStr(outMod,outArg)}</div>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.out,marginBottom:3,minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cStr(outRe,outIm)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)",minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{polarStr(outMod,outArg)}</div>
           </>) : (<>
-            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.out,marginBottom:3}}>{polarStr(outMod,outArg)}</div>
-            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)"}}>{cStr(outRe,outIm)}</div>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"var(--font-mono)",color:COL.out,marginBottom:3,minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{polarStr(outMod,outArg)}</div>
+            <div style={{fontSize:12,fontFamily:"var(--font-mono)",color:"var(--color-text-tertiary)",minHeight:"1.4em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cStr(outRe,outIm)}</div>
           </>)) : (
-            <div style={{fontSize:15,fontWeight:500,fontFamily:"var(--font-mono)",color:"var(--color-text-danger)"}}>undefined</div>
+            <div style={{fontSize:15,fontWeight:500,fontFamily:"var(--font-mono)",color:"var(--color-text-danger)",minHeight:"1.4em"}}>undefined</div>
           )}
         </div>
       </div>
