@@ -138,15 +138,14 @@ export default function ComplexExplorer() {
   const [showPolarGrid, setShowPolarGrid] = useState(false);
   const [showMesh, setShowMesh] = useState(true);
   const [meshTip, setMeshTip] = useState(false);
+  const [showVectors, setShowVectors] = useState(true);
   const [showRadii, setShowRadii] = useState(true);
   const [showAngle, setShowAngle] = useState(true);
   const meshThick = 1.2; // fixed thickness
   const [hoveredLine, setHoveredLine] = useState(null); // {val, isRow} — edge hover
   const [hoverPos, setHoverPos] = useState(null);       // {re, im} — cursor pos while on graph
-  const [lockedPos, setLockedPos] = useState(null);     // {re, im} — last cursor pos, persists when cursor leaves
   const [isDragging, setIsDragging] = useState(false);
   const svgRef = useRef(null);
-  const zRef = useRef({re:0,im:0});
   const onWheelRef = useRef(null);
 
   const SCALES = [0.001, 0.01, 0.1, 1, 2, 3, 5, 10, 20, 100, 1000, 10000];
@@ -165,7 +164,6 @@ export default function ComplexExplorer() {
     ? [re,im]
     : [radius*Math.cos(angleDeg*Math.PI/180), radius*Math.sin(angleDeg*Math.PI/180)];
   const zRe=z[0], zIm=z[1], inMod=cAbs(z), inArg=cArg(z);
-  zRef.current = {re: zRe, im: zIm};
 
   let outRe=NaN, outIm=NaN, outOk=false;
   if (parsedFn) { try { const w=parsedFn(z); outRe=w[0]; outIm=w[1]; outOk=isFinite(outRe)&&isFinite(outIm); } catch{} }
@@ -305,8 +303,6 @@ export default function ComplexExplorer() {
     setIsDragging(false);
     setHoveredLine(null);
     setHoverPos(null);
-    // snap grid to z's position at the moment cursor leaves, then freeze
-    setLockedPos({re: zRef.current.re, im: zRef.current.im});
   },[]);
 
   // Nearest hoverLine snap helpers (Re snaps to Re lines, Im to Im lines)
@@ -656,13 +652,19 @@ export default function ComplexExplorer() {
             </div>
           )}
         </div>
+        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",userSelect:"none"}}>
+          <input type="checkbox" checked={showVectors} onChange={e=>setShowVectors(e.target.checked)}
+            style={{accentColor:COL.in,width:13,height:13,cursor:"pointer"}}/>
+          <span style={{fontSize:12,color: showVectors ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+            fontWeight: showVectors ? 500 : 400,transition:"color 0.15s"}}>Vectors z, f(z)</span>
+        </label>
         {[
-          {label:"Radii |z|, |f(z)|", val:showRadii, set:setShowRadii},
-          {label:"Angle arc", val:showAngle, set:setShowAngle},
-        ].map(({label,val,set})=>(
-          <label key={label} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",userSelect:"none"}}>
-            <input type="checkbox" checked={val} onChange={e=>set(e.target.checked)}
-              style={{accentColor:COL.in,width:13,height:13,cursor:"pointer"}}/>
+          {label:"Radii |z|, |f(z)|", val:showRadii && showVectors, set:v=>setShowRadii(v), disabled:!showVectors},
+          {label:"Angle arc", val:showAngle && showVectors, set:v=>setShowAngle(v), disabled:!showVectors},
+        ].map(({label,val,set,disabled})=>(
+          <label key={label} style={{display:"flex",alignItems:"center",gap:6,cursor:disabled?"not-allowed":"pointer",userSelect:"none",opacity:disabled?0.4:1}}>
+            <input type="checkbox" checked={val} onChange={e=>set(e.target.checked)} disabled={disabled}
+              style={{accentColor:COL.in,width:13,height:13,cursor:disabled?"not-allowed":"pointer"}}/>
             <span style={{fontSize:12,color: val ? "var(--color-text-primary)" : "var(--color-text-secondary)",
               fontWeight: val ? 500 : 400,transition:"color 0.15s"}}>{label}</span>
           </label>
@@ -863,7 +865,7 @@ export default function ComplexExplorer() {
               </g>;
             };
             if(showMesh && parsedFn){
-              const pos = hoverPos || lockedPos || {re: zRe, im: zIm};
+              const pos = hoverPos || {re: zRe, im: zIm};
               const posR = Math.sqrt(pos.re*pos.re + pos.im*pos.im);
               const posTh = Math.atan2(pos.im, pos.re);
               const normTh = ((posTh % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
@@ -898,7 +900,8 @@ export default function ComplexExplorer() {
             if(hoveredLine) lines.push(renderZLine(hoveredLine.val, hoveredLine.isRow, 'edge'));
             // interior hover (grid map on): both Re and Im snapped lines
             if(showMesh && parsedFn && !hoveredLine){
-              const pos = hoverPos || lockedPos || {re: zRe, im: zIm};
+              const pos = hoverPos || {re: zRe, im: zIm};
+              // Always snap to nearest hover-line so input highlight matches the mesh line
               const snapRe = snapToReHoverLine(pos.re);
               const snapIm = snapToImHoverLine(pos.im);
               lines.push(renderZLine(snapRe, false, 're'));
@@ -909,27 +912,33 @@ export default function ComplexExplorer() {
         })()}
 
         {/* Transformation mesh */}
-        {meshData.map(({pts,val,isRow,polar},li)=>{
+        {(()=>{
+          const meshPos = showMesh ? (hoverPos || {re: zRe, im: zIm}) : null;
+          let highlightReVal = null, highlightImVal = null, highlightRVal = null, highlightThVal = null;
+          if (meshPos) {
+            if (showPolarGrid) {
+              const posR = Math.sqrt(meshPos.re*meshPos.re + meshPos.im*meshPos.im);
+              const posTh = ((Math.atan2(meshPos.im, meshPos.re) % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+              highlightRVal = snapToPolarR(posR);
+              highlightThVal = snapToPolarTh(posTh);
+            } else {
+              highlightReVal = snapToReHoverLine(meshPos.re);
+              highlightImVal = snapToImHoverLine(meshPos.im);
+            }
+          }
+          return meshData.map(({pts,val,isRow,polar},li)=>{
           // edge-hover: exact match on the single selected line (cartesian only)
           const edgeHit = !showPolarGrid && hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
-          // interior-hover (grid map on): snap to nearest line, fallback to z position
-          const meshPos = showMesh ? (hoverPos || lockedPos || {re: zRe, im: zIm}) : null;
           let interiorHit = false;
-          if (showPolarGrid && meshPos) {
-            const posR = Math.sqrt(meshPos.re*meshPos.re + meshPos.im*meshPos.im);
-            const posTh = ((Math.atan2(meshPos.im, meshPos.re) % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
-            const snapR = snapToPolarR(posR);
-            const snapTh = snapToPolarTh(posTh);
+          if (showPolarGrid) {
             interiorHit = showMesh && (
-              ( isRow && Math.abs(val-snapR)<0.0001) ||
-              (!isRow && Math.abs(val-snapTh)<0.0001)
+              ( isRow && highlightRVal !== null && Math.abs(val-highlightRVal)<0.0001) ||
+              (!isRow && highlightThVal !== null && Math.abs(val-highlightThVal)<0.0001)
             );
-          } else if (meshPos) {
-            const snapRe = snapToReHoverLine(meshPos.re);
-            const snapIm = snapToImHoverLine(meshPos.im);
+          } else {
             interiorHit = showMesh && (
-              (!isRow && Math.abs(val-snapRe)<0.0001) ||
-              ( isRow && Math.abs(val-snapIm)<0.0001)
+              (!isRow && highlightReVal !== null && Math.abs(val-highlightReVal)<0.0001) ||
+              ( isRow && highlightImVal !== null && Math.abs(val-highlightImVal)<0.0001)
             );
           }
           const isHovered = edgeHit || interiorHit;
@@ -967,26 +976,27 @@ export default function ComplexExplorer() {
           });
           if(!d) return null;
           const col = COL.out; // always green (f(z) color)
-          const sw = isHovered ? meshThick * 1.4 : meshThick * 0.45;
-          const op = isHovered ? 0.9 : 0.18;
+          const sw = isHovered ? meshThick * 1.4 : meshThick * 0.6;
+          const op = isHovered ? 0.9 : 0.3;
           // Im lines (isRow=true) are dashed, Re lines (isRow=false) are solid
           const dash = isRow ? "1 6" : undefined;
           return <g key={li}>
             <path d={d} fill="none" stroke={col} strokeWidth={sw} opacity={op}
               strokeDasharray={dash}/>
           </g>;
-        })}
+        });
+        })()}
 
         {/* Input |z| circle */}
-        {showRadii && inMod*pxScale>1 && inMod*pxScale<H &&
+        {showVectors && showRadii && inMod*pxScale>1 && inMod*pxScale<H &&
           <circle cx={cx} cy={cy} r={inMod*pxScale} fill="none" stroke={COL.in} strokeWidth="1" strokeDasharray="5 4" opacity="0.25"/>}
 
         {/* Output |f(z)| circle */}
-        {showRadii && outOk && outMod*pxScale>1 && outMod*pxScale<H &&
+        {showVectors && showRadii && outOk && outMod*pxScale>1 && outMod*pxScale<H &&
           <circle cx={cx} cy={cy} r={outMod*pxScale} fill="none" stroke={COL.outC} strokeWidth="1" strokeDasharray="5 4" opacity="0.4"/>}
 
         {/* Rotation arc */}
-        {showAngle && outOk && inMod*pxScale>8 && outMod*pxScale>4 && (()=>{
+        {showVectors && showAngle && outOk && inMod*pxScale>8 && outMod*pxScale>4 && (()=>{
           const arcR=Math.min(inMod*pxScale*0.35,50);
           let d=outArg-inArg;
           while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
@@ -1005,10 +1015,10 @@ export default function ComplexExplorer() {
         })()}
 
         {/* Input vector */}
-        {inMod*pxScale>1 && (inOOB ? renderOOB(zRe,zIm,COL.in,"z") : renderVec(zRe,zIm,COL.in,"z","arr-in"))}
+        {showVectors && inMod*pxScale>1 && (inOOB ? renderOOB(zRe,zIm,COL.in,"z") : renderVec(zRe,zIm,COL.in,"z","arr-in"))}
 
         {/* Output vector */}
-        {outOk && outMod*pxScale>1 && (outOOB ? renderOOB(outRe,outIm,COL.out,"f(z)") : renderVec(outRe,outIm,COL.out,"f(z)","arr-out"))}
+        {showVectors && outOk && outMod*pxScale>1 && (outOOB ? renderOOB(outRe,outIm,COL.out,"f(z)") : renderVec(outRe,outIm,COL.out,"f(z)","arr-out"))}
 
         {!isDragging && <text x={W-10} y={H-10} textAnchor="end"
           style={{fontSize:11,fill:"var(--color-text-tertiary)",fontFamily:"var(--font-sans)"}}>click or drag to move z</text>}
