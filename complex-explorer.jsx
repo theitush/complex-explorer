@@ -981,8 +981,8 @@ export default function ComplexExplorer() {
           });
           if(!d) return null;
           const col = COL.out; // always green (f(z) color)
-          const sw = isHovered ? meshThick * 1.4 : meshThick * 0.6;
-          const op = isHovered ? 0.9 : 0.3;
+          const sw = isHovered ? meshThick * 1.2 : meshThick * 0.9;
+          const op = isHovered ? 1 : 0.4;
           // Im lines (isRow=true) are dashed, Re lines (isRow=false) are solid
           const dash = isRow ? "1 6" : undefined;
           return <g key={li}>
