@@ -901,9 +901,7 @@ export default function ComplexExplorer() {
               const posR = Math.sqrt(pos.re*pos.re + pos.im*pos.im);
               const posTh = Math.atan2(pos.im, pos.re);
               const normTh = ((posTh % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
-              const snapR = snapToPolarR(posR);
-              const snapTh = snapToPolarTh(normTh);
-              lines.push(renderPolarHighlight(snapR, snapTh));
+              lines.push(renderPolarHighlight(posR, normTh));
             }
           } else {
             const renderZLine = (val, isRow, key) => {
@@ -933,32 +931,27 @@ export default function ComplexExplorer() {
             // interior hover (grid map on): both Re and Im snapped lines
             if(showMesh && parsedFn && !hoveredLine){
               const pos = hoverPos || {re: zRe, im: zIm};
-              // Input-plane lines follow cursor exactly for smooth motion;
-              // label shows snapped value to match the highlighted mesh line.
-              const snapRe = snapToReHoverLine(pos.re);
-              const snapIm = snapToImHoverLine(pos.im);
               const [gxActual] = toS(pos.re, 0);
               const [, gyActual] = toS(0, pos.im);
-              const slideT = 'transform 0.06s ease-out';
-              const labelRe = `Re = ${fN(snapRe,2)}`;
+              const labelRe = `Re = ${fN(pos.re,2)}`;
               const lwRe = labelRe.length*7+8;
               const lxRe = Math.min(Math.max(gxActual - lwRe/2, 2), W - lwRe - 2);
               lines.push(
-                <g key="re" style={{transform:`translateX(${gxActual}px)`, transition: slideT}}>
-                  <line x1={0} y1={0} x2={0} y2={H} stroke={col} strokeWidth="1.8" opacity="0.75"/>
-                  <rect x={lxRe - gxActual} y={17} width={lwRe} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
-                  <text x={lxRe - gxActual + lwRe/2} y={30} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{labelRe}</text>
+                <g key="re">
+                  <line x1={gxActual} y1={0} x2={gxActual} y2={H} stroke={col} strokeWidth="1.8" opacity="0.75"/>
+                  <rect x={lxRe} y={17} width={lwRe} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                  <text x={lxRe+lwRe/2} y={30} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{labelRe}</text>
                 </g>
               );
-              const labelIm = `Im = ${fN(snapIm,2)}`;
+              const labelIm = `Im = ${fN(pos.im,2)}`;
               const lwIm = labelIm.length*7+8;
               const lxIm = Math.min(Math.max(cx - lwIm/2, 2), W - lwIm - 2);
               const lyIm = Math.min(Math.max(gyActual, 11), H-11);
               lines.push(
-                <g key="im" style={{transform:`translateY(${gyActual}px)`, transition: slideT}}>
-                  <line x1={0} y1={0} x2={W} y2={0} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="1 6"/>
-                  <rect x={lxIm} y={-9} width={lwIm} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
-                  <text x={lxIm+lwIm/2} y={3} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{labelIm}</text>
+                <g key="im">
+                  <line x1={0} y1={gyActual} x2={W} y2={gyActual} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="1 6"/>
+                  <rect x={lxIm} y={lyIm-9} width={lwIm} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                  <text x={lxIm+lwIm/2} y={lyIm+3} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{labelIm}</text>
                 </g>
               );
             }
@@ -968,31 +961,12 @@ export default function ComplexExplorer() {
 
         {/* Transformation mesh */}
         {(()=>{
-          const meshPos = showMesh ? (hoverPos || {re: zRe, im: zIm}) : null;
-          let highlightReVal = null, highlightImVal = null, highlightRVal = null, highlightThVal = null;
-          if (meshPos) {
-            if (showPolarGrid) {
-              const posR = Math.sqrt(meshPos.re*meshPos.re + meshPos.im*meshPos.im);
-              const posTh = ((Math.atan2(meshPos.im, meshPos.re) % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
-              highlightRVal = snapToPolarR(posR);
-              highlightThVal = snapToPolarTh(posTh);
-            } else {
-              highlightReVal = snapToReHoverLine(meshPos.re);
-              highlightImVal = snapToImHoverLine(meshPos.im);
-            }
-          }
           return meshData.map(({pts,val,isRow,polar},li)=>{
           // edge-hover: exact match on the single selected line (cartesian only)
           // Interior hover no longer highlights pre-computed lines — live lines are drawn instead
           const edgeHit = !showPolarGrid && hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
-          let interiorHit = false;
-          if (showPolarGrid) {
-            interiorHit = showMesh && (
-              ( isRow && highlightRVal !== null && Math.abs(val-highlightRVal)<0.0001) ||
-              (!isRow && highlightThVal !== null && Math.abs(val-highlightThVal)<0.0001)
-            );
-          }
-          // Cartesian interior: no pre-computed highlight — live lines handle it
+          // No pre-computed highlight for interior hover — live lines handle both cartesian and polar
+          const interiorHit = false;
           const isHovered = edgeHit || interiorHit;
           const d = ptsToPath(pts, polar, isRow);
           if(!d) return null;
@@ -1008,22 +982,46 @@ export default function ComplexExplorer() {
         });
         })()}
 
-        {/* Live f(z) gridlines — sampled on the fly at exact zRe/zIm, no snapping */}
-        {showMesh && parsedFn && !hoveredLine && !showPolarGrid && (()=>{
+        {/* Live f(z) gridlines — sampled on the fly at exact z position, no snapping */}
+        {showMesh && parsedFn && !hoveredLine && (()=>{
           const pos = hoverPos || {re: zRe, im: zIm};
           const col = COL.out;
-          const reRng = Math.max(visReMax * 1.5, 16);
-          const imRng = Math.max(visImMax * 1.5, 16);
-          // constant Re = pos.re, varying Im → solid vertical-ish curve
-          const ptsRe = sampleAdaptive(imRng, t => parsedFn([pos.re, t]));
-          const dRe = ptsToPath(ptsRe, false, false);
-          // constant Im = pos.im, varying Re → dashed horizontal-ish curve
-          const ptsIm = sampleAdaptive(reRng, t => parsedFn([t, pos.im]));
-          const dIm = ptsToPath(ptsIm, false, true);
-          return <g>
-            {dRe && <path d={dRe} fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1}/>}
-            {dIm && <path d={dIm} fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1} strokeDasharray="1 6"/>}
-          </g>;
+          if (showPolarGrid) {
+            const posR = Math.sqrt(pos.re*pos.re + pos.im*pos.im);
+            const posTh = Math.atan2(pos.im, pos.re);
+            const normTh = ((posTh % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+            // constant-r circle at exact r
+            const ptsR = sampleAdaptive(Math.PI, t => parsedFn([posR*Math.cos(t), posR*Math.sin(t)]), 0.5, 16);
+            const dR = ptsToPath(ptsR, true, true);
+            // constant-θ ray at exact θ, log-r sampling same as pre-computed
+            const cosA = Math.cos(normTh), sinA = Math.sin(normTh);
+            const rMin = 1e-4;
+            const logMin = Math.log(rMin), logMax = Math.log(polarMaxR);
+            const logMid = (logMin + logMax) / 2;
+            const half = (logMax - logMin) / 2;
+            const ptsTh = sampleAdaptive(half, t => {
+              const rr = Math.exp(logMid + t);
+              return parsedFn([rr*cosA, rr*sinA]);
+            }, 0.5, 16);
+            const dTh = ptsToPath(ptsTh, true, false);
+            return <g>
+              {dR  && <path d={dR}  fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1}/>}
+              {dTh && <path d={dTh} fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1} strokeDasharray="1 6"/>}
+            </g>;
+          } else {
+            const reRng = Math.max(visReMax * 1.5, 16);
+            const imRng = Math.max(visImMax * 1.5, 16);
+            // constant Re = pos.re, varying Im → solid curve
+            const ptsRe = sampleAdaptive(imRng, t => parsedFn([pos.re, t]));
+            const dRe = ptsToPath(ptsRe, false, false);
+            // constant Im = pos.im, varying Re → dashed curve
+            const ptsIm = sampleAdaptive(reRng, t => parsedFn([t, pos.im]));
+            const dIm = ptsToPath(ptsIm, false, true);
+            return <g>
+              {dRe && <path d={dRe} fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1}/>}
+              {dIm && <path d={dIm} fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1} strokeDasharray="1 6"/>}
+            </g>;
+          }
         })()}
 
         {/* Input |z| circle */}
