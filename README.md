@@ -1,6 +1,7 @@
 # Complex Explorer
 
-A web application for visualizing and exploring complex functions on the complex plane. Built with React and Vite.
+A web application for visualizing and exploring complex functions on the complex plane. Built with React and Vite.<br>
+Original concept and design by Claude Opus 4.6
 
 ## Features
 
