@@ -245,7 +245,12 @@ export default function ComplexExplorer() {
 
   const onMove = useCallback(e => {
     const p=getPos(e); if(!p) return;
-    if(isDragging){ updateFromScreen(p[0],p[1]); return; }
+    if(isDragging){
+      updateFromScreen(p[0],p[1]);
+      const [mx,my]=p;
+      setHoverPos({re:(mx-cx)/pxScale, im:-(my-cy)/pxScale});
+      return;
+    }
     const [mx,my]=p;
     const edgeTol=30;
     const atTopBot = my<edgeTol || my>H-edgeTol;
@@ -277,7 +282,7 @@ export default function ComplexExplorer() {
       setHoverPos({re:mr, im:mi});
     }
   },[isDragging,getPos,updateFromScreen,pxScale,cx,cy,W,H]);
-  const onUp = useCallback(()=>setIsDragging(false),[]);
+  const onUp = useCallback(()=>{ setIsDragging(false); setHoverPos(null); },[]);
   const scrollAcc = useRef(0);
   const onWheel = useCallback(e => {
     e.preventDefault();
