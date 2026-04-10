@@ -428,6 +428,33 @@ export default function ComplexExplorer() {
     }
   }
 
+  // Build an SVG path string from a pts array (same format as meshData entries)
+  const ptsToPath = (pts, polar, isRow) => {
+    const oobMargin = 400;
+    const sPts = pts.map(p => {
+      if (!p) return null;
+      const [sx,sy] = toS(p[0],p[1]);
+      if (sx<-oobMargin||sx>W+oobMargin||sy<-oobMargin||sy>H+oobMargin) return null;
+      return [sx,sy];
+    });
+    const steps = [];
+    for (let i=1;i<sPts.length;i++) {
+      if (!sPts[i-1]||!sPts[i]) continue;
+      const dx=sPts[i][0]-sPts[i-1][0], dy=sPts[i][1]-sPts[i-1][1];
+      steps.push(Math.sqrt(dx*dx+dy*dy));
+    }
+    const medianStep = ([...steps].sort((a,b)=>a-b))[Math.floor(steps.length/2)] || 1;
+    const jumpThresh = (polar && isRow) ? Infinity : Math.max(medianStep * 10, 2);
+    let d="",on=false,prevSx=0,prevSy=0;
+    sPts.forEach(sp=>{
+      if(!sp){on=false;return;}
+      const [sx,sy]=sp;
+      if(on){ const dx=sx-prevSx,dy=sy-prevSy; if(Math.sqrt(dx*dx+dy*dy)>jumpThresh) on=false; }
+      d+=(on?`L`:`M`)+`${sx} ${sy}`; on=true; prevSx=sx; prevSy=sy;
+    });
+    return d;
+  };
+
   // OOB detection
   const pad = 30;
   const maxR = Math.min(W,H)/2 - pad;
@@ -906,11 +933,34 @@ export default function ComplexExplorer() {
             // interior hover (grid map on): both Re and Im snapped lines
             if(showMesh && parsedFn && !hoveredLine){
               const pos = hoverPos || {re: zRe, im: zIm};
-              // Always snap to nearest hover-line so input highlight matches the mesh line
+              // Input-plane lines follow cursor exactly for smooth motion;
+              // label shows snapped value to match the highlighted mesh line.
               const snapRe = snapToReHoverLine(pos.re);
               const snapIm = snapToImHoverLine(pos.im);
-              lines.push(renderZLine(snapRe, false, 're'));
-              lines.push(renderZLine(snapIm, true,  'im'));
+              const [gxActual] = toS(pos.re, 0);
+              const [, gyActual] = toS(0, pos.im);
+              const slideT = 'transform 0.06s ease-out';
+              const labelRe = `Re = ${fN(snapRe,2)}`;
+              const lwRe = labelRe.length*7+8;
+              const lxRe = Math.min(Math.max(gxActual - lwRe/2, 2), W - lwRe - 2);
+              lines.push(
+                <g key="re" style={{transform:`translateX(${gxActual}px)`, transition: slideT}}>
+                  <line x1={0} y1={0} x2={0} y2={H} stroke={col} strokeWidth="1.8" opacity="0.75"/>
+                  <rect x={lxRe - gxActual} y={17} width={lwRe} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                  <text x={lxRe - gxActual + lwRe/2} y={30} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{labelRe}</text>
+                </g>
+              );
+              const labelIm = `Im = ${fN(snapIm,2)}`;
+              const lwIm = labelIm.length*7+8;
+              const lxIm = Math.min(Math.max(cx - lwIm/2, 2), W - lwIm - 2);
+              const lyIm = Math.min(Math.max(gyActual, 11), H-11);
+              lines.push(
+                <g key="im" style={{transform:`translateY(${gyActual}px)`, transition: slideT}}>
+                  <line x1={0} y1={0} x2={W} y2={0} stroke={col} strokeWidth="1.8" opacity="0.75" strokeDasharray="1 6"/>
+                  <rect x={lxIm} y={-9} width={lwIm} height={18} rx={3} fill="var(--color-background-primary)" opacity="0.88"/>
+                  <text x={lxIm+lwIm/2} y={3} textAnchor="middle" style={{fontSize:11,fontWeight:700,fill:col,fontFamily:"var(--font-mono)"}}>{labelIm}</text>
+                </g>
+              );
             }
           }
           return lines;
@@ -933,6 +983,7 @@ export default function ComplexExplorer() {
           }
           return meshData.map(({pts,val,isRow,polar},li)=>{
           // edge-hover: exact match on the single selected line (cartesian only)
+          // Interior hover no longer highlights pre-computed lines — live lines are drawn instead
           const edgeHit = !showPolarGrid && hoveredLine && hoveredLine.isRow===isRow && Math.abs(hoveredLine.val-val)<0.0001;
           let interiorHit = false;
           if (showPolarGrid) {
@@ -940,47 +991,12 @@ export default function ComplexExplorer() {
               ( isRow && highlightRVal !== null && Math.abs(val-highlightRVal)<0.0001) ||
               (!isRow && highlightThVal !== null && Math.abs(val-highlightThVal)<0.0001)
             );
-          } else {
-            interiorHit = showMesh && (
-              (!isRow && highlightReVal !== null && Math.abs(val-highlightReVal)<0.0001) ||
-              ( isRow && highlightImVal !== null && Math.abs(val-highlightImVal)<0.0001)
-            );
           }
+          // Cartesian interior: no pre-computed highlight — live lines handle it
           const isHovered = edgeHit || interiorHit;
-          // Spikes near poles are already nulled by sampleLine(), so we just need
-          // to break the path at nulls and at large screen-space jumps (remaining
-          // discontinuities that weren't caught by the spike filter).
-          const oobMargin = 400;
-          const sPts = pts.map(p => {
-            if (!p) return null;
-            const [sx,sy] = toS(p[0],p[1]);
-            if (sx<-oobMargin||sx>W+oobMargin||sy<-oobMargin||sy>H+oobMargin) return null;
-            return [sx,sy];
-          });
-          // Median screen-space step for jump detection
-          const steps = [];
-          for (let i=1;i<sPts.length;i++) {
-            if (!sPts[i-1]||!sPts[i]) continue;
-            const dx=sPts[i][0]-sPts[i-1][0], dy=sPts[i][1]-sPts[i-1][1];
-            steps.push(Math.sqrt(dx*dx+dy*dy));
-          }
-          const sorted = [...steps].sort((a,b)=>a-b);
-          const medianStep = sorted[Math.floor(sorted.length/2)] || 1;
-          // For polar circles (closed curves), disable jump-break — any large step is a sampling
-          // artifact from a rapidly-winding output (e.g. z^i), not a real discontinuity.
-          const jumpThresh = (polar && isRow) ? Infinity : Math.max(medianStep * 10, 2);
-          let d="",on=false,prevSx=0,prevSy=0;
-          sPts.forEach(sp=>{
-            if(!sp){on=false;return;}
-            const [sx,sy]=sp;
-            if(on){
-              const dx=sx-prevSx, dy=sy-prevSy;
-              if(Math.sqrt(dx*dx+dy*dy) > jumpThresh){on=false;}
-            }
-            d+=(on?`L`:`M`)+`${sx} ${sy}`; on=true; prevSx=sx; prevSy=sy;
-          });
+          const d = ptsToPath(pts, polar, isRow);
           if(!d) return null;
-          const col = COL.out; // always green (f(z) color)
+          const col = COL.out;
           const sw = isHovered ? meshThick * 1.2 : meshThick * 0.9;
           const op = isHovered ? 1 : 0.4;
           // Im lines (isRow=true) are dashed, Re lines (isRow=false) are solid
@@ -990,6 +1006,24 @@ export default function ComplexExplorer() {
               strokeDasharray={dash}/>
           </g>;
         });
+        })()}
+
+        {/* Live f(z) gridlines — sampled on the fly at exact zRe/zIm, no snapping */}
+        {showMesh && parsedFn && !hoveredLine && !showPolarGrid && (()=>{
+          const pos = hoverPos || {re: zRe, im: zIm};
+          const col = COL.out;
+          const reRng = Math.max(visReMax * 1.5, 16);
+          const imRng = Math.max(visImMax * 1.5, 16);
+          // constant Re = pos.re, varying Im → solid vertical-ish curve
+          const ptsRe = sampleAdaptive(imRng, t => parsedFn([pos.re, t]));
+          const dRe = ptsToPath(ptsRe, false, false);
+          // constant Im = pos.im, varying Re → dashed horizontal-ish curve
+          const ptsIm = sampleAdaptive(reRng, t => parsedFn([t, pos.im]));
+          const dIm = ptsToPath(ptsIm, false, true);
+          return <g>
+            {dRe && <path d={dRe} fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1}/>}
+            {dIm && <path d={dIm} fill="none" stroke={col} strokeWidth={meshThick * 1.2} opacity={1} strokeDasharray="1 6"/>}
+          </g>;
         })()}
 
         {/* Input |z| circle */}
