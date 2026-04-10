@@ -708,7 +708,7 @@ export default function ComplexExplorer() {
 
       {/* SVG plane */}
       <svg ref={svgRef} width="100%" viewBox={`0 0 ${W} ${H}`}
-        style={{cursor:isDragging?"grabbing":"crosshair",touchAction:"none",display:"block",
+        style={{cursor:isDragging?"grabbing":"crosshair",touchAction:"none",userSelect:"none",display:"block",
           borderRadius:"var(--border-radius-lg)",border:"1.5px solid var(--color-border-secondary)"}}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onLeave}>
         <defs>
