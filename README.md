@@ -2,7 +2,8 @@
 
 A vibe coded web app for visualizing and exploring complex functions on the complex plane. Built with React and Vite.<br>
 Original concept(!) design and all coding by Claude Opus 4.6. <br>
-Exective producer, product and QA by theitush.
+Exective producer, product and QA by theitush.<br><br>
+App is live: [https://theitush.github.io/complex-explorer/](https://theitush.github.io/complex-explorer/)
 
 ## Features
 
